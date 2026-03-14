@@ -1,4 +1,4 @@
-import { log } from '../utils/logger.js'
+import { log } from '../utils/logger'
 
 type NuxtKit = typeof import('@nuxt/kit')
 
@@ -10,20 +10,6 @@ async function importModuleFrom(id: string, rootDir: string): Promise<unknown> {
   const require = createRequire(rootDir + '/')
   const resolved = require.resolve(id)
   return import(resolved)
-}
-
-/**
- * Try to resolve a module path from a given root directory.
- * Returns the resolved path, or null if not found.
- */
-function tryResolveFrom(id: string, rootDir: string): string | null {
-  try {
-    const { createRequire } = require('node:module')
-    const req = createRequire(rootDir + '/')
-    return req.resolve(id)
-  } catch {
-    return null
-  }
 }
 
 /**
