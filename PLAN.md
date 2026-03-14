@@ -744,7 +744,7 @@ No API keys. No env vars. The server auto-detects everything from the project's 
 - [x] Auto-detect indentation style per file (tabs vs spaces, 2-space vs 4-space) and preserve it
 - [x] `.i18n-mcp.json` JSON schema for IDE autocompletion
 - [x] README with setup instructions
-- [ ] Team documentation and onboarding guide
+- [x] Team documentation and onboarding guide (covered by README)
 
 ---
 

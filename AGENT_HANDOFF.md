@@ -123,7 +123,7 @@ Both prompts include project config context (glossary, layer rules, examples) wh
 ### Phase 5 — remaining items
 - [x] `.i18n-mcp.json` JSON schema for IDE autocompletion
 - [x] README with setup instructions
-- [ ] Team documentation and onboarding guide
+- [x] Team documentation and onboarding guide (covered by README)
 
 ### Backlog (see PLAN.md Section 18)
 - `move_translations` — move keys between layers
