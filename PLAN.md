@@ -170,6 +170,17 @@ interface I18nConfig {
     /** If this dir is an alias to another layer's dir */
     aliasOf?: string
   }>
+  /** Optional project config from .i18n-mcp.json (see Section 4.8) */
+  projectConfig?: ProjectConfig
+}
+
+interface ProjectConfig {
+  context?: string
+  layerRules?: Array<{ layer: string; description: string; when: string }>
+  glossary?: Record<string, string>
+  translationPrompt?: string
+  localeNotes?: Record<string, string>
+  examples?: Array<Record<string, string>>
 }
 ```
 
@@ -184,6 +195,93 @@ The `fallbackLocale` map comes from `i18n.config.ts` (or `vueI18n` config). Sinc
 ### 4.7 Caching
 
 Config detection is expensive (loads full Nuxt). Cache the result in memory after first detection. Provide a `reload_config` tool to refresh.
+
+### 4.8 Project Config File (`.i18n-mcp.json`)
+
+An **optional** config file at the project root that provides the agent with project-specific context. The MCP server doesn't interpret the rules — it passes them to the agent as part of the `detect_i18n_config` response. The agent (an LLM) is perfectly suited to interpret fuzzy rules like "if the key is generic enough, put it in root."
+
+**File:** `.i18n-mcp.json` (at project root, next to `nuxt.config.ts`)
+
+```json
+{
+  "context": "This is the anny-ui monorepo. We build a SaaS booking platform. The root layer holds shared translations (common actions, navigation, errors). Each app-* layer holds translations specific to that app's domain.",
+
+  "layerRules": [
+    {
+      "layer": "root",
+      "description": "Shared translations used across all apps. Keys like common.actions.*, common.messages.*, common.navigation.*",
+      "when": "The key is generic enough to be used in multiple apps (e.g., 'Save', 'Cancel', 'Loading...', 'Date', 'Time')"
+    },
+    {
+      "layer": "app-admin",
+      "description": "Admin dashboard translations. Keys like admin.*, pages.*, components.* specific to the admin panel.",
+      "when": "The file path is inside app-admin/, or the key is only relevant to admin functionality"
+    },
+    {
+      "layer": "app-shop",
+      "description": "Shop/booking frontend translations.",
+      "when": "The file path is inside app-shop/, or the key relates to customer-facing booking flow"
+    }
+  ],
+
+  "glossary": {
+    "Buchung": "Booking (never 'Reservation')",
+    "Ressource": "Resource (a bookable entity like a room, desk, or person)",
+    "Dienstleistung": "Service (a type of offering)",
+    "Termin": "Appointment",
+    "Zeitfenster": "Time slot"
+  },
+
+  "translationPrompt": "You are translating for a B2B SaaS booking platform called 'anny'. Use professional but approachable tone. For de-DE-formal, use 'Sie' (polite form). Preserve all {placeholders} and @:linked.references. Keep translations concise — UI space is limited.",
+
+  "localeNotes": {
+    "de-DE-formal": "Formal German using 'Sie'. Used by enterprise customers.",
+    "en-US": "American English. Primary market is Germany, so some terms may have German-specific context.",
+    "en-GB": "British English. Use 'colour' not 'color', etc."
+  },
+
+  "examples": [
+    {
+      "key": "common.actions.bookResource",
+      "de-DE": "{name} buchen",
+      "en-US": "Book {name}",
+      "note": "Concise, imperative, preserves placeholder"
+    },
+    {
+      "key": "common.messages.success",
+      "de-DE": "Erfolgreich gespeichert",
+      "en-US": "Successfully saved",
+      "note": "Past tense, no exclamation mark"
+    }
+  ]
+}
+```
+
+#### Config Schema
+
+| Field | Type | Required | Purpose |
+|-------|------|----------|---------|
+| `context` | `string` | No | Free-form project background for the agent — business domain, user base, brand voice |
+| `layerRules` | `Array<{ layer, description, when }>` | No | Helps the agent decide which layer a new key belongs to. The `when` field is a natural-language rule. |
+| `glossary` | `Record<string, string>` | No | Term dictionary. Agent uses this during translation to ensure consistent terminology. |
+| `translationPrompt` | `string` | No | System prompt prepended to all translation requests (sampling or agent-inline). Sets tone, style, constraints. |
+| `localeNotes` | `Record<string, string>` | No | Per-locale context (formal register, regional differences, etc.). Included in translation prompts for specific locales. |
+| `examples` | `Array<{ key, [locale]: value, note? }>` | No | Few-shot translation examples that demonstrate the project's style. Agent uses these as reference. |
+
+#### How It Flows
+
+1. **`detect_i18n_config`** — reads `.i18n-mcp.json` if present and includes it in the response under `projectConfig`.
+2. **Agent reads `layerRules`** — decides "I'm editing `app-admin/components/Foo.vue`, so the key goes in the `app-admin` layer."
+3. **Agent reads `glossary`** — translates "Buchung" as "Booking", not "Reservation."
+4. **`translate_missing`** — prepends `translationPrompt`, `glossary`, `localeNotes`, and `examples` to the sampling request. Even programmatic translations respect the project's terminology.
+5. **Prompts** — `add-feature-translations` includes the project config as context so the agent follows conventions from the start.
+
+#### Design Choices
+
+- **Config is optional** — server works fine without it, just loses project-specific context.
+- **Agent interprets rules, not the server** — fuzzy rules like "generic enough to be used in multiple apps" are perfect for LLMs, terrible for code.
+- **Glossary is simple key-value** — no complex term management, just enough for the agent to reference.
+- **Examples provide few-shot learning** — more effective than describing style in words.
 
 ---
 
@@ -228,13 +326,15 @@ All tools use `zod` for input validation via the TypeScript SDK's `server.regist
 
 ### 6.1 `detect_i18n_config`
 
-Auto-reads the Nuxt i18n setup via `@nuxt/kit`.
+Auto-reads the Nuxt i18n setup via `@nuxt/kit`. Also reads `.i18n-mcp.json` if present.
 
 | Field | Value |
 |-------|-------|
-| **Description** | Detect the Nuxt i18n configuration from the project. Returns locales, locale directories, default locale, and fallback chain. Call this first before using other tools. |
+| **Description** | Detect the Nuxt i18n configuration from the project. Returns locales, locale directories, default locale, fallback chain, and project config (glossary, layer rules, translation prompt) if `.i18n-mcp.json` exists. Call this first before using other tools. |
 | **Input** | `{ projectDir?: string }` — optional, defaults to server cwd |
-| **Output** | The full `I18nConfig` as JSON text |
+| **Output** | The full `I18nConfig` as JSON text, including `projectConfig` if `.i18n-mcp.json` is found |
+
+**Important:** The `projectConfig` fields (`context`, `layerRules`, `glossary`, `translationPrompt`, `localeNotes`, `examples`) are meant for the agent to read and use as context for its decisions. The server does not interpret them — it only passes them through. The agent should use `layerRules` to decide which layer a new key belongs to, `glossary` for consistent terminology, and `translationPrompt`/`examples` when translating.
 
 ---
 
@@ -355,7 +455,7 @@ Auto-translate missing keys using the host's LLM via MCP sampling.
 
 | Field | Value |
 |-------|-------|
-| **Description** | Find keys missing in target locales and translate them using the host LLM (via MCP sampling). Translates from the reference locale. Writes results directly to locale files. |
+| **Description** | Find keys missing in target locales and translate them using the host LLM (via MCP sampling). Translates from the reference locale. Writes results directly to locale files. Uses project config (glossary, translation prompt, locale notes, examples) if available. |
 | **Input** | `{ layer: string, referenceLocale?: string, targetLocales?: string[], keys?: string[], batchSize?: number }` |
 | **Output** | Summary: keys translated, locales updated, any failures |
 
@@ -368,8 +468,28 @@ This means:
 - **Model-agnostic** — works with GPT-4, Claude, etc.
 - **No extra cost** — uses the same LLM the agent is already using
 
-**Sampling request per batch:**
+**Sampling prompt construction (uses project config):**
+
+The sampling prompt is assembled from multiple sources:
+
 ```
+[1. translationPrompt from .i18n-mcp.json — if present]
+You are translating for a B2B SaaS booking platform called 'anny'...
+
+[2. Glossary — if present]
+GLOSSARY — use these terms consistently:
+- Buchung → Booking (never 'Reservation')
+- Ressource → Resource (a bookable entity)
+- Dienstleistung → Service (a type of offering)
+
+[3. Locale-specific notes — if present for target locale]
+TARGET LOCALE NOTE (de-DE-formal): Formal German using 'Sie'. Used by enterprise customers.
+
+[4. Examples — if present]
+STYLE EXAMPLES:
+- common.actions.bookResource: "{name} buchen" → "Book {name}" (concise, imperative, preserves placeholder)
+
+[5. The actual translation request]
 Translate the following i18n key-value pairs from {referenceLang} to {targetLang}.
 Preserve all {placeholder} parameters and @:linked.message references.
 Return ONLY a JSON object mapping keys to translated values. No markdown, no explanation.
@@ -380,12 +500,11 @@ Return ONLY a JSON object mapping keys to translated values. No markdown, no exp
 }
 ```
 
+When no `.i18n-mcp.json` exists, only section [5] is sent — the prompt is still functional, just without project-specific context.
+
 **Batch size:** Default 50 keys per sampling request. Configurable via `batchSize`.
 
-**Fallback:** If the host doesn't support sampling (likely the case for Cursor today), the tool returns the list of missing keys with their reference values and instructs the agent to translate them inline, then call `add_translations` / `update_translations` with the results. The agent can do this naturally since translation is trivial for it — the hard part (file I/O) is handled by our other tools.
-
-**Context for formal/informal variants:**
-When translating to locales like `de-DE-formal`, the sampling prompt includes: "Use formal/polite register (Sie-Form)."
+**Fallback:** If the host doesn't support sampling (likely the case for Cursor today), the tool returns the list of missing keys with their reference values and instructs the agent to translate them inline, then call `add_translations` / `update_translations` with the results. When returning this fallback, the tool also includes the `translationPrompt`, `glossary`, and relevant `localeNotes` so the agent has full context for manual translation.
 
 ---
 
@@ -433,8 +552,11 @@ Layer: {layer}
 Feature namespace: {namespace}
 
 1. Use `detect_i18n_config` to understand the project setup.
+   - If `projectConfig.layerRules` exists, use them to decide which layer to target.
+   - If `projectConfig.glossary` exists, use it for consistent terminology.
 2. Use `search_translations` to check for existing similar keys.
-3. Use `add_translations` to add keys for the two primary locales (de-DE and en-US for anny-ui, or the project's default + English).
+3. Use `add_translations` to add keys for the two primary locales (the project's default + English, or per project conventions).
+   - If `projectConfig.examples` exists, follow the same translation style.
 4. Use `translate_missing` to auto-translate remaining locales.
 ```
 
@@ -446,6 +568,8 @@ Template for finding and fixing translation gaps.
 Find and fix all missing translations in the project.
 
 1. Use `detect_i18n_config` to load the project config.
+   - If `projectConfig.translationPrompt` exists, use it as context for translations.
+   - If `projectConfig.glossary` exists, ensure all translations use consistent terms.
 2. Use `get_missing_translations` to find all gaps across all layers.
 3. Use `translate_missing` to auto-fill gaps using the reference locale.
 4. Report a summary of what was translated.
@@ -459,13 +583,15 @@ Find and fix all missing translations in the project.
 packages/i18n-mcp-server/
 ├── package.json
 ├── tsconfig.json
+├── .i18n-mcp.json                  # Optional project config (glossary, layer rules, etc.)
 ├── src/
 │   ├── index.ts                    # Entry point — stdio transport setup
 │   ├── server.ts                   # McpServer instance, tool/resource/prompt registration
 │   ├── config/
 │   │   ├── detector.ts             # Auto-detect i18n config via @nuxt/kit
 │   │   ├── nuxt-loader.ts          # Resilient @nuxt/kit loading (resolve from project)
-│   │   └── types.ts                # I18nConfig type definitions
+│   │   ├── project-config.ts       # Read & validate .i18n-mcp.json
+│   │   └── types.ts                # I18nConfig + ProjectConfig type definitions
 │   ├── tools/
 │   │   ├── detect-config.ts        # detect_i18n_config
 │   │   ├── list-locale-dirs.ts     # list_locale_dirs
@@ -491,6 +617,7 @@ packages/i18n-mcp-server/
 ├── tests/
 │   ├── fixtures/                   # Sample locale files for testing
 │   ├── config-detector.test.ts
+│   ├── project-config.test.ts
 │   ├── key-operations.test.ts
 │   ├── json-writer.test.ts
 │   └── tools/
@@ -563,25 +690,31 @@ No API keys. No env vars. The server auto-detects everything from the project's 
 
 ## 12. Implementation Phases
 
-### Phase 1 — Core (MVP)
+### Phase 1 — Core (MVP) ✅
 **Goal:** Agent can read, add, and update translations efficiently.
 
-- [ ] Project scaffolding (`package.json`, `tsconfig.json`, build script)
-- [ ] `@nuxt/kit` loader (`nuxt-loader.ts`) — resilient kit resolution from project
-- [ ] Config auto-detection (`detector.ts`) — `loadNuxt()` → extract i18n config + layers
-- [ ] JSON I/O layer (reader, writer, key operations)
-- [ ] Tools: `detect_i18n_config`, `list_locale_dirs`, `get_translations`, `add_translations`, `update_translations`
-- [ ] stdio transport entry point
-- [ ] Unit tests for key operations and JSON writer
+- [x] Project scaffolding (`package.json`, `tsconfig.json`, build script)
+- [x] `@nuxt/kit` loader (`nuxt-loader.ts`) — resilient kit resolution from project
+- [x] Config auto-detection (`detector.ts`) — `loadNuxt()` → extract i18n config + layers
+- [x] JSON I/O layer (reader, writer, key operations)
+- [x] Tools: `detect_i18n_config`, `list_locale_dirs`, `get_translations`, `add_translations`, `update_translations`
+- [x] stdio transport entry point
+- [x] Unit tests for key operations and JSON writer
+- [x] Playground with root + app-admin layer for integration testing
+- [x] Integration tests for config detection against playground (57 tests passing)
 - [ ] MCP Inspector manual testing
 - [ ] README with setup instructions
 
-### Phase 2 — Analysis & Search
-**Goal:** Agent can find gaps and search existing translations.
+### Phase 2 — Analysis, Search & Project Config
+**Goal:** Agent can find gaps, search translations, and use project-specific context.
 
+- [ ] **Project config** (`project-config.ts`): read `.i18n-mcp.json`, validate, include in `detect_i18n_config` response
+- [ ] **Types**: add `ProjectConfig` interface to `types.ts`
 - [ ] Tools: `get_missing_translations`, `search_translations`
 - [ ] Resources: locale file resource templates
 - [ ] Tests for missing key detection
+- [ ] Tests for project config loading (with and without `.i18n-mcp.json`)
+- [ ] Playground: add `.i18n-mcp.json` example to playground
 
 ### Phase 3 — Refactoring & Cleanup
 **Goal:** Agent can safely restructure i18n keys.
@@ -591,10 +724,11 @@ No API keys. No env vars. The server auto-detects everything from the project's 
 - [ ] Tests for remove/rename across all locales
 
 ### Phase 4 — Auto-Translation
-**Goal:** Agent can fill in missing locales automatically.
+**Goal:** Agent can fill in missing locales automatically, using project context.
 
 - [ ] Tool: `translate_missing` — MCP sampling integration
-- [ ] Fallback: when sampling unsupported, return keys for agent to translate inline
+- [ ] **Sampling prompt assembly**: prepend `translationPrompt`, `glossary`, `localeNotes`, `examples` from project config
+- [ ] **Fallback**: when sampling unsupported, return keys + project config context for agent to translate inline
 - [ ] Batch chunking logic (50 keys per sampling request)
 - [ ] Prompts: `add-feature-translations`, `fix-missing-translations`
 
@@ -606,6 +740,7 @@ No API keys. No env vars. The server auto-detects everything from the project's 
 - [ ] Handle edge cases: `@:` linked messages, `{param}` placeholders, HTML in values
 - [ ] BabelEdit compatibility validation (ensure written JSON is cleanly importable)
 - [ ] Auto-detect indentation style per file (tabs vs spaces) and preserve it
+- [ ] `.i18n-mcp.json` JSON schema for IDE autocompletion
 - [ ] Team documentation and onboarding guide
 
 ---
@@ -626,9 +761,13 @@ resolve(layer.config.rootDir, 'i18n', i18n.langDir ?? 'locales')
 
 We replicate this resolution to discover all locale directories. For layers with custom `langDir` (like `app-outlook → ../../app-shop/i18n/locales`), we detect the aliasing by checking if the resolved path matches another layer's directory.
 
+### Why `.i18n-mcp.json` is optional and agent-interpreted?
+
+The project config solves a fundamentally fuzzy problem: "which layer does this key belong to?" and "what terminology should translations use?". These are decisions that require understanding context, not matching rules — perfect for an LLM, terrible for code. So the server just reads the file and passes it to the agent. The agent reads `layerRules` like a human developer would read a CONTRIBUTING.md.
+
 ### Why not bundle translation LLM directly?
 
-MCP sampling means zero API key management. The host (Cursor/VS Code) already has a configured LLM. We ask it to translate via the protocol. If sampling isn't available (likely today), the fallback is natural: the tool returns the missing keys and the agent translates inline, then calls `add_translations`. Translation is trivial for the agent — the hard part (structured file I/O) is handled by us.
+MCP sampling means zero API key management. The host (Cursor/VS Code) already has a configured LLM. We ask it to translate via the protocol. If sampling isn't available (likely today), the fallback is natural: the tool returns the missing keys (along with project config context) and the agent translates inline, then calls `add_translations`. Translation is trivial for the agent — the hard part (structured file I/O) is handled by us.
 
 ### Why fail on add if key exists (and vice versa)?
 
@@ -644,7 +783,7 @@ The project uses nested JSON everywhere. BabelEdit reads nested JSON. The MCP se
 
 ### Handling formal/informal variants
 
-`de-DE-formal` and `de-DE` are separate files with separate locale codes. The server treats them as independent locales. When `translate_missing` translates to `de-DE-formal`, the sampling prompt includes register context ("Use formal/polite Sie-Form").
+`de-DE-formal` and `de-DE` are separate files with separate locale codes. The server treats them as independent locales. When `translate_missing` translates to `de-DE-formal`, the sampling prompt includes register context from `localeNotes` if available in `.i18n-mcp.json`, otherwise defaults to "Use formal/polite register (Sie-Form)."
 
 ### Handling aliased layers
 
@@ -654,39 +793,69 @@ The project uses nested JSON everywhere. BabelEdit reads nested JSON. The MCP se
 
 ## 14. Agent Workflow Examples
 
-### Adding translations for a new feature
+### Adding translations for a new feature (with project config)
 
 ```
 Agent: calls detect_i18n_config → learns 17 locales, 6 layers, default=de
+  Response includes projectConfig with layerRules, glossary, examples.
+
+Agent: reads layerRules → "I'm editing app-admin/components/BookingTable.vue,
+  so per the rules the key goes in the app-admin layer."
+
+Agent: reads glossary → "Buchung = Booking (never 'Reservation')"
+
 Agent: calls search_translations("booking") → checks for existing keys
+
 Agent: calls add_translations({
-  layer: "app-admin",
+  layer: "app-admin",          ← decided based on layerRules
   translations: {
-    "pages.bookings.newFeature.title": {
-      "de-DE": "Neue Funktion",
-      "en-US": "New Feature",
-      "en-GB": "New Feature"
+    "components.bookingTable.title": {
+      "de-DE": "Buchungsübersicht",    ← uses glossary term "Buchung"
+      "en-US": "Booking Overview",     ← uses glossary term "Booking"
+      "en-GB": "Booking Overview"
     },
-    "pages.bookings.newFeature.description": {
-      "de-DE": "Beschreibung der neuen Funktion",
-      "en-US": "Description of the new feature",
-      "en-GB": "Description of the new feature"
+    "components.bookingTable.empty": {
+      "de-DE": "Keine Buchungen vorhanden",
+      "en-US": "No bookings available",
+      "en-GB": "No bookings available"
     }
   }
 })
+
 Agent: calls translate_missing({
   layer: "app-admin",
-  keys: ["pages.bookings.newFeature.title", "pages.bookings.newFeature.description"]
+  keys: ["components.bookingTable.title", "components.bookingTable.empty"]
 })
-→ All 17 locales updated. 34 file writes handled in 4 tool calls.
+→ translate_missing uses translationPrompt + glossary + localeNotes from project config.
+→ All 17 locales updated. Consistent terminology across all languages.
+```
+
+### Adding a common/shared translation
+
+```
+Agent: calls detect_i18n_config → reads layerRules
+
+Agent: decides "Date" is generic, used across multiple apps →
+  layerRules say: root layer for generic keys like 'Date', 'Time'.
+
+Agent: calls add_translations({
+  layer: "root",               ← root, not app-specific
+  translations: {
+    "common.terms.date": {
+      "de-DE": "Datum",
+      "en-US": "Date"
+    }
+  }
+})
 ```
 
 ### Fixing missing translations before release
 
 ```
+Agent: calls detect_i18n_config → gets project config with translationPrompt + glossary
 Agent: calls get_missing_translations() → finds 12 keys missing in fr-FR, 3 in es-ES
 Agent: calls translate_missing({ targetLocales: ["fr-FR", "es-ES"] })
-→ All gaps filled. Agent reports summary to the user.
+→ All gaps filled using project terminology. Agent reports summary.
 ```
 
 ### Renaming a key across all locales
@@ -761,3 +930,6 @@ The MCP spec has a [SEP for nested task execution](https://modelcontextprotocol.
 - **Translation memory** — Cache previous translations to ensure consistency when the same phrase appears in multiple places
 - **Pluralization support** — Handle vue-i18n plural forms (`{ count } item | { count } items`)
 - **Key usage analysis** — Scan Vue/TS source files to find unused translation keys
+- **`.i18n-mcp.json` JSON Schema** — Publish a JSON Schema so IDEs provide autocompletion and validation when editing the config file
+- **Glossary validation** — Tool that checks existing translations against the glossary and reports inconsistencies (e.g., "fr-FR uses 'Réservation' but glossary says 'Booking' should be used")
+- **Auto-generate `.i18n-mcp.json`** — Tool that analyzes existing translations and proposes a glossary, layer rules, and examples based on patterns found
