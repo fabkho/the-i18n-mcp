@@ -57,7 +57,7 @@ export async function detectI18nConfig(projectDir: string): Promise<I18nConfig> 
   }
 
   try {
-    const config = await extractI18nConfig(nuxt, projectDir)
+    const config = await extractI18nConfig(nuxt as unknown as { options: Record<string, unknown> }, projectDir)
     cachedConfig = config
     log.info(`Detected ${config.locales.length} locales, ${config.localeDirs.length} locale directories`)
     return config
