@@ -13,6 +13,7 @@ import {
   renameNestedKey,
   validateTranslationValue,
 } from './io/key-operations.js'
+import { scanSourceFiles, toRelativePath } from './scanner/code-scanner.js'
 import { log } from './utils/logger.js'
 import { ToolError } from './utils/errors.js'
 import { join } from 'node:path'
@@ -1243,6 +1244,154 @@ export function createServer(): McpServer {
         }
       } catch (error) {
         return toolErrorResponse('translating missing keys', error)
+      }
+    },
+  )
+
+  // ─── find_orphan_keys ─────────────────────────────────────────
+
+  server.registerTool(
+    'find_orphan_keys',
+    {
+      title: 'Find Orphan Translation Keys',
+      description:
+        'Find translation keys that exist in locale JSON files but are not referenced in any Vue/TS source code. Scans a specific layer or all layers. Reports keys that can potentially be removed.',
+      inputSchema: {
+        layer: z.string().optional().describe('Layer name to check. If omitted, checks all layers.'),
+        locale: z.string().optional().describe('Locale code to read keys from. Defaults to the project default locale.'),
+        scanDirs: z.array(z.string()).optional().describe('Directories to scan for source code (absolute paths). Defaults to all layer root directories.'),
+        excludeDirs: z.array(z.string()).optional().describe('Additional directory names to skip when scanning (e.g., ["storybook", "__tests__"]).'),
+        projectDir: z.string().optional().describe('Absolute path to the Nuxt project root. Defaults to server cwd.'),
+      },
+    },
+    async ({ layer, locale, scanDirs, excludeDirs, projectDir }) => {
+      try {
+        const dir = projectDir ?? process.cwd()
+        const config = await detectI18nConfig(dir)
+
+        // Determine which locale to read keys from
+        const localeCode = locale ?? config.defaultLocale
+        const localeDef = findLocale(config, localeCode)
+        if (!localeDef) {
+          throw new ToolError(
+            `Locale not found: "${localeCode}". Available: ${config.locales.map(l => l.code).join(', ')}`,
+            'LOCALE_NOT_FOUND',
+          )
+        }
+
+        // Determine layers to check
+        const layersToCheck = layer
+          ? config.localeDirs.filter(d => d.layer === layer)
+          : config.localeDirs.filter(d => !d.aliasOf)
+
+        if (layersToCheck.length === 0) {
+          if (layer) {
+            throw new ToolError(
+              `Layer not found: "${layer}". Available: ${config.localeDirs.map(d => d.layer).join(', ')}`,
+              'LAYER_NOT_FOUND',
+            )
+          }
+          throw new ToolError('No locale directories found.', 'LAYER_NOT_FOUND')
+        }
+
+        // Collect all translation keys from locale files
+        const allTranslationKeys = new Map<string, string>() // key -> layer
+        for (const localeDir of layersToCheck) {
+          const filePath = resolveLocaleFilePath(config, localeDir.layer, localeDef.file)
+          if (!filePath) continue
+
+          let data: Record<string, unknown>
+          try {
+            data = await readLocaleFile(filePath)
+          } catch {
+            continue
+          }
+
+          const leafKeys = getLeafKeys(data)
+          for (const key of leafKeys) {
+            allTranslationKeys.set(key, localeDir.layer)
+          }
+        }
+
+        if (allTranslationKeys.size === 0) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ orphanKeys: [], summary: { totalKeys: 0, orphanCount: 0, filesScanned: 0, message: 'No translation keys found in locale files.' } }, null, 2),
+              },
+            ],
+          }
+        }
+
+        // Determine directories to scan for source code
+        const dirsToScan = scanDirs ?? [...new Set(layersToCheck.map(d => d.layerRootDir))]
+
+        // Scan all source files for key usage
+        let combinedUniqueKeys = new Set<string>()
+        let totalFilesScanned = 0
+        const allDynamicKeys: Array<{ expression: string; file: string; line: number; callee: string }> = []
+
+        for (const scanDir of dirsToScan) {
+          const result = await scanSourceFiles(scanDir, excludeDirs)
+          totalFilesScanned += result.filesScanned
+          for (const key of result.uniqueKeys) {
+            combinedUniqueKeys.add(key)
+          }
+          allDynamicKeys.push(...result.dynamicKeys)
+        }
+
+        // Find orphan keys: translation keys not referenced in source code
+        const orphanKeys: Array<{ key: string; layer: string }> = []
+        for (const [key, keyLayer] of allTranslationKeys) {
+          if (!combinedUniqueKeys.has(key)) {
+            orphanKeys.push({ key, layer: keyLayer })
+          }
+        }
+
+        // Sort orphans by layer, then key
+        orphanKeys.sort((a, b) => a.layer.localeCompare(b.layer) || a.key.localeCompare(b.key))
+
+        // Group by layer for readability
+        const byLayer: Record<string, string[]> = {}
+        for (const { key, layer: keyLayer } of orphanKeys) {
+          if (!byLayer[keyLayer]) byLayer[keyLayer] = []
+          byLayer[keyLayer].push(key)
+        }
+
+        const output = {
+          orphanKeys: byLayer,
+          summary: {
+            totalKeys: allTranslationKeys.size,
+            orphanCount: orphanKeys.length,
+            usedCount: allTranslationKeys.size - orphanKeys.length,
+            filesScanned: totalFilesScanned,
+            layersChecked: layersToCheck.map(d => d.layer),
+            dirsScanned: dirsToScan,
+            locale: localeCode,
+          },
+          dynamicKeyWarning: allDynamicKeys.length > 0
+            ? `${allDynamicKeys.length} dynamic key reference(s) found (template literals with interpolation). Some "orphan" keys may actually be used via dynamic keys. Review before removing.`
+            : undefined,
+          dynamicKeys: allDynamicKeys.length > 0
+            ? allDynamicKeys.map(dk => ({
+                expression: dk.expression,
+                file: toRelativePath(dk.file, dir),
+                line: dk.line,
+              }))
+            : undefined,
+        }
+
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(output, null, 2),
+            },
+          ],
+        }
+      } catch (error) {
+        return toolErrorResponse('finding orphan keys', error)
       }
     },
   )
