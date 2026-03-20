@@ -1,5 +1,9 @@
 # nuxt-i18n-mcp
 
+[![CI](https://github.com/fabkho/nuxt-i18n-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/fabkho/nuxt-i18n-mcp/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/nuxt-i18n-mcp)](https://www.npmjs.com/package/nuxt-i18n-mcp)
+[![license](https://img.shields.io/npm/l/nuxt-i18n-mcp)](https://github.com/fabkho/nuxt-i18n-mcp/blob/main/LICENSE)
+
 An MCP server that gives AI coding agents structured tools for managing i18n translation files in Nuxt projects. Instead of the agent fumbling with nested JSON across dozens of locale files, it calls tools like `add_translations` and the server handles all the file I/O — atomic writes, format preservation, alphabetical key sorting, the works.
 
 Works with any MCP-compatible host: VS Code, Zed, Claude Desktop, Cursor, etc.
