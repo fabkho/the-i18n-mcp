@@ -51,7 +51,7 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@nuxt/kit": "^3.0.0"
+    "@nuxt/kit": "^3.0.0 || ^4.0.0"
   },
   "peerDependenciesMeta": {
     "@nuxt/kit": {
@@ -61,7 +61,7 @@
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
-    "@nuxt/kit": "^3.17.0",
+    "@nuxt/kit": "^4.4.2",
     "@types/node": "^22.0.0",
     "eslint": "^10.0.3",
     "husky": "^9.1.7",
@@ -72,6 +72,6 @@
   },
   "packageManager": "pnpm@10.12.1",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.12.0"
   }
 }

@@ -25,8 +25,8 @@ importers:
         specifier: ^20.5.0
         version: 20.5.0
       '@nuxt/kit':
-        specifier: ^3.17.0
-        version: 3.21.2(magicast@0.5.2)
+        specifier: ^4.4.2
+        version: 4.4.2(magicast@0.5.2)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -843,10 +843,6 @@ packages:
     peerDependenciesMeta:
       '@vitejs/devtools':
         optional: true
-
-  '@nuxt/kit@3.21.2':
-    resolution: {integrity: sha512-Bd6m6mrDrqpBEbX+g0rc66/ALd1sxlgdx5nfK9MAYO0yKLTOSK7McSYz1KcOYn3LQFCXOWfvXwaqih/b+REI1g==}
-    engines: {node: '>=18.12.0'}
 
   '@nuxt/kit@4.4.2':
     resolution: {integrity: sha512-5+IPRNX2CjkBhuWUwz0hBuLqiaJPRoKzQ+SvcdrQDbAyE+VDeFt74VpSFr5/R0ujrK4b+XnSHUJWdS72w6hsog==}
