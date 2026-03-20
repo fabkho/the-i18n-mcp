@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.fabkho/nuxt-i18n-mcp",
-  "description": "MCP server for managing i18n translation files in Nuxt projects — without stuffing entire locale files into context.",
+  "description": "MCP server for managing i18n translations in Nuxt projects.",
   "repository": {
     "url": "https://github.com/fabkho/nuxt-i18n-mcp",
     "source": "github"
