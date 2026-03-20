@@ -1,37 +1,13 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { resolve } from 'node:path'
-import { createPlaygroundConfig, createAppAdminConfig } from '../fixtures/config.js'
+import { registerDetectorMock, playgroundDir, appAdminDir } from '../fixtures/mock-detector.js'
 import type { I18nConfig } from '../../src/config/types.js'
 
-const playgroundDir = resolve(import.meta.dirname, '../../playground')
-const appAdminDir = resolve(import.meta.dirname, '../../playground/app-admin')
-
-// Mock the detector so we never call loadNuxt
-vi.mock('../../src/config/detector.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../src/config/detector.js')>()
-  let cached: I18nConfig | null = null
-  return {
-    ...original,
-    detectI18nConfig: vi.fn(async (projectDir: string) => {
-      if (projectDir === playgroundDir) {
-        cached = createPlaygroundConfig()
-        return cached
-      }
-      if (projectDir === appAdminDir) {
-        cached = createAppAdminConfig()
-        return cached
-      }
-      throw new Error(`No fixture config for ${projectDir}`)
-    }),
-    clearConfigCache: vi.fn(() => {
-      cached = null
-    }),
-    getCachedConfig: vi.fn(() => cached),
-  }
-})
+// Register the shared detector mock (vi.mock is hoisted by Vitest)
+registerDetectorMock()
 
 // Import after mock so the mock is in place
-const { detectI18nConfig, clearConfigCache } = await import('../../src/config/detector.js')
+const { detectI18nConfig, clearConfigCache, getCachedConfig } = await import('../../src/config/detector.js')
 
 describe('detectI18nConfig against playground', () => {
   let config: I18nConfig
@@ -97,11 +73,29 @@ describe('detectI18nConfig against playground', () => {
     expect(hasDefault || hasEn).toBe(true)
   })
 
-  it('caches config on subsequent calls', async () => {
+  it('returns the same cached instance on subsequent calls', async () => {
     const config2 = await detectI18nConfig(playgroundDir)
-    // Both calls go through the mock, which returns a fresh object each time.
-    // We still verify the structure matches.
-    expect(config2.rootDir).toBe(config.rootDir)
+    // The mock preserves instance identity — same object reference
+    expect(config2).toBe(config)
+  })
+
+  it('getCachedConfig returns the last detected config', async () => {
+    // detectI18nConfig was already called in beforeAll, so cache should be populated
+    const cachedConfig = getCachedConfig()
+    expect(cachedConfig).toBe(config)
+  })
+
+  it('clearConfigCache resets the cached config to null', () => {
+    clearConfigCache()
+    expect(getCachedConfig()).toBeNull()
+  })
+
+  it('detectI18nConfig repopulates cache after clearing', async () => {
+    // Cache was cleared in the previous test, so detect again
+    const fresh = await detectI18nConfig(playgroundDir)
+    expect(fresh).toBeDefined()
+    expect(fresh.rootDir).toBe(playgroundDir)
+    expect(getCachedConfig()).toBe(fresh)
   })
 
   it('throws for non-existent project dir', async () => {
@@ -115,6 +109,7 @@ describe('detectI18nConfig against playground/app-admin (layer)', () => {
   let config: I18nConfig
 
   beforeAll(async () => {
+    clearConfigCache()
     config = await detectI18nConfig(appAdminDir)
   })
 
@@ -155,5 +150,10 @@ describe('detectI18nConfig against playground/app-admin (layer)', () => {
     expect(codes).toContain('en')
     expect(codes).toContain('fr')
     expect(codes).toContain('es')
+  })
+
+  it('getCachedConfig returns app-admin config after detection', () => {
+    const cached = getCachedConfig()
+    expect(cached).toBe(config)
   })
 })

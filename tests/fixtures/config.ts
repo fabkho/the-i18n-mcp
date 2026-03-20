@@ -62,7 +62,7 @@ export function createPlaygroundConfig(): I18nConfig {
     rootDir: playgroundDir,
     defaultLocale: 'de',
     fallbackLocale: { default: ['en'] },
-    locales: [...locales],
+    locales: structuredClone(locales),
     localeDirs: [
       {
         path: resolve(playgroundDir, 'i18n/locales'),
@@ -70,7 +70,7 @@ export function createPlaygroundConfig(): I18nConfig {
         layerRootDir: playgroundDir,
       },
     ],
-    projectConfig: { ...projectConfig },
+    projectConfig: structuredClone(projectConfig),
   }
 }
 
@@ -88,7 +88,7 @@ export function createAppAdminConfig(): I18nConfig {
     rootDir: appAdminDir,
     defaultLocale: 'de',
     fallbackLocale: { default: ['en'] },
-    locales: [...locales],
+    locales: structuredClone(locales),
     localeDirs: [
       {
         path: resolve(appAdminDir, 'i18n/locales'),
@@ -101,6 +101,6 @@ export function createAppAdminConfig(): I18nConfig {
         layerRootDir: playgroundDir,
       },
     ],
-    projectConfig: { ...projectConfig },
+    projectConfig: structuredClone(projectConfig),
   }
 }

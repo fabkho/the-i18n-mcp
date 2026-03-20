@@ -1,8 +1,7 @@
-import { describe, it, expect, vi, afterEach, beforeEach, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, beforeAll, afterAll } from 'vitest'
 import { resolve, join } from 'node:path'
 import { cp, rm, mkdir } from 'node:fs/promises'
 import type { I18nConfig } from '../../src/config/types.js'
-import { createPlaygroundConfig, createAppAdminConfig } from '../fixtures/config.js'
 import { readLocaleFile } from '../../src/io/json-reader.js'
 import { mutateLocaleFile } from '../../src/io/json-writer.js'
 import {
@@ -13,33 +12,10 @@ import {
   removeNestedValue,
 } from '../../src/io/key-operations.js'
 import { loadProjectConfig } from '../../src/config/project-config.js'
+import { registerDetectorMock, playgroundDir, appAdminDir } from '../fixtures/mock-detector.js'
 
-const playgroundDir = resolve(import.meta.dirname, '../../playground')
-const appAdminDir = resolve(import.meta.dirname, '../../playground/app-admin')
-
-// Mock the detector so we never call loadNuxt
-vi.mock('../../src/config/detector.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../src/config/detector.js')>()
-  let cached: I18nConfig | null = null
-  return {
-    ...original,
-    detectI18nConfig: vi.fn(async (projectDir: string) => {
-      if (projectDir === playgroundDir) {
-        cached = createPlaygroundConfig()
-        return cached
-      }
-      if (projectDir === appAdminDir) {
-        cached = createAppAdminConfig()
-        return cached
-      }
-      throw new Error(`No fixture config for ${projectDir}`)
-    }),
-    clearConfigCache: vi.fn(() => {
-      cached = null
-    }),
-    getCachedConfig: vi.fn(() => cached),
-  }
-})
+// Register the shared detector mock (vi.mock is hoisted by Vitest)
+registerDetectorMock()
 
 const { detectI18nConfig, clearConfigCache } = await import('../../src/config/detector.js')
 
