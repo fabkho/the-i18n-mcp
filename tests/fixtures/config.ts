@@ -49,6 +49,12 @@ const projectConfig = {
       note: 'Concise, imperative',
     },
   ],
+  orphanScan: {
+    root: {
+      description: 'Root layer keys are used across all apps',
+      scanDirs: ['.', 'app-admin'],
+    },
+  },
 }
 
 /**
