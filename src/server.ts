@@ -95,6 +95,7 @@ function toolErrorResponse(context: string, error: unknown) {
  * Shared logic for add_translations and update_translations.
  * - mode 'add': fails if key already exists
  * - mode 'update': fails if key does not exist
+ * - dryRun: when true, reads files to check what would happen but does not write
  */
 async function applyTranslations(
   config: I18nConfig,
@@ -103,14 +104,15 @@ async function applyTranslations(
   mode: 'add' | 'update',
   findLocale: (config: I18nConfig, ref: string) => ReturnType<typeof findLocaleImpl>,
   resolveLocaleFilePath: (config: I18nConfig, layer: string, file: string) => string | null,
-): Promise<{ applied: string[]; skipped: string[]; warnings: string[]; filesWritten: number }> {
+  dryRun = false,
+): Promise<{ applied: string[]; skipped: string[]; warnings: string[]; filesWritten: number; preview?: Array<{ locale: string; key: string; value: string }> }> {
   const applied: string[] = []
   const skipped: string[] = []
   const warnings: string[] = []
   const filesWritten = new Set<string>()
+  const preview: Array<{ locale: string; key: string; value: string }> = []
 
-  // Group translations by locale file
-  const byFile = new Map<string, Array<{ key: string; value: string }>>()
+  const byFile = new Map<string, Array<{ key: string; value: string; localeCode: string }>>()
 
   for (const [key, localeValues] of Object.entries(translations)) {
     for (const [localeRef, value] of Object.entries(localeValues)) {
@@ -133,34 +135,59 @@ async function applyTranslations(
       if (!byFile.has(filePath)) {
         byFile.set(filePath, [])
       }
-      byFile.get(filePath)!.push({ key, value })
+      byFile.get(filePath)!.push({ key, value, localeCode: locale.code })
     }
   }
 
-  // Apply changes per file
   for (const [filePath, entries] of byFile) {
-    await mutateLocaleFile(filePath, (data) => {
-      for (const { key, value } of entries) {
+    if (dryRun) {
+      let data: Record<string, unknown> = {}
+      try {
+        data = await readLocaleFile(filePath)
+      } catch {
+        // File doesn't exist yet — treat all keys as applicable
+      }
+      for (const { key, value, localeCode } of entries) {
         const exists = hasNestedKey(data, key)
         if (mode === 'add' && exists) {
           skipped.push(key)
         } else if (mode === 'update' && !exists) {
           skipped.push(key)
         } else {
-          setNestedValue(data, key, value)
           applied.push(key)
+          preview.push({ locale: localeCode, key, value })
         }
       }
-    })
-    filesWritten.add(filePath)
+    } else {
+      await mutateLocaleFile(filePath, (data) => {
+        for (const { key, value } of entries) {
+          const exists = hasNestedKey(data, key)
+          if (mode === 'add' && exists) {
+            skipped.push(key)
+          } else if (mode === 'update' && !exists) {
+            skipped.push(key)
+          } else {
+            setNestedValue(data, key, value)
+            applied.push(key)
+          }
+        }
+      })
+      filesWritten.add(filePath)
+    }
   }
 
-  return {
+  const result: { applied: string[]; skipped: string[]; warnings: string[]; filesWritten: number; preview?: Array<{ locale: string; key: string; value: string }> } = {
     applied: [...new Set(applied)],
     skipped: [...new Set(skipped)],
     warnings,
     filesWritten: filesWritten.size,
   }
+
+  if (dryRun) {
+    result.preview = preview
+  }
+
+  return result
 }
 
 // ─── Sampling prompt helpers ──────────────────────────────────────
@@ -491,20 +518,46 @@ export function createServer(): McpServer {
             ),
           )
           .describe('Map of key paths to locale-value pairs'),
+        dryRun: z
+          .boolean()
+          .optional()
+          .describe('If true, return a preview of what would be added without writing. Default: false.'),
         projectDir: z
           .string()
           .optional()
           .describe('Absolute path to the Nuxt project root. Defaults to server cwd.'),
       },
     },
-    async ({ layer, translations, projectDir }) => {
+    async ({ layer, translations, dryRun, projectDir }) => {
       try {
         const dir = projectDir ?? process.cwd()
         const config = await detectI18nConfig(dir)
+        const isDryRun = dryRun ?? false
 
-        const { applied, skipped, warnings, filesWritten } = await applyTranslations(
-          config, layer, translations, 'add', findLocale, resolveLocaleFilePath,
+        const { applied, skipped, warnings, filesWritten, preview } = await applyTranslations(
+          config, layer, translations, 'add', findLocale, resolveLocaleFilePath, isDryRun,
         )
+
+        if (isDryRun) {
+          const result: Record<string, unknown> = {
+            dryRun: true,
+            wouldAdd: preview,
+            summary: {
+              keysToAdd: applied.length,
+              keysSkipped: skipped.length,
+              message: 'Call again with dryRun: false to apply these changes.',
+            },
+          }
+          if (skipped.length > 0) {
+            result.skippedKeys = skipped
+          }
+          if (warnings.length > 0) {
+            result.warnings = warnings
+          }
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+          }
+        }
 
         const summary: Record<string, unknown> = {
           added: applied,
@@ -548,20 +601,43 @@ export function createServer(): McpServer {
             ),
           )
           .describe('Map of key paths to locale-value pairs'),
+        dryRun: z
+          .boolean()
+          .optional()
+          .describe('If true, return a preview of what would be updated without writing. Default: false.'),
         projectDir: z
           .string()
           .optional()
           .describe('Absolute path to the Nuxt project root. Defaults to server cwd.'),
       },
     },
-    async ({ layer, translations, projectDir }) => {
+    async ({ layer, translations, dryRun, projectDir }) => {
       try {
         const dir = projectDir ?? process.cwd()
         const config = await detectI18nConfig(dir)
+        const isDryRun = dryRun ?? false
 
-        const { applied, skipped, filesWritten } = await applyTranslations(
-          config, layer, translations, 'update', findLocale, resolveLocaleFilePath,
+        const { applied, skipped, filesWritten, preview } = await applyTranslations(
+          config, layer, translations, 'update', findLocale, resolveLocaleFilePath, isDryRun,
         )
+
+        if (isDryRun) {
+          const result: Record<string, unknown> = {
+            dryRun: true,
+            wouldUpdate: preview,
+            summary: {
+              keysToUpdate: applied.length,
+              keysSkipped: skipped.length,
+              message: 'Call again with dryRun: false to apply these changes.',
+            },
+          }
+          if (skipped.length > 0) {
+            result.skippedKeys = skipped
+          }
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+          }
+        }
 
         return {
           content: [
