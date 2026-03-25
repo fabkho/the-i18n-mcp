@@ -102,8 +102,8 @@ Every write tool requires a `layer` parameter (e.g., `"root"`, `"app-admin"`). U
 | `detect_i18n_config` | Loads Nuxt config, returns locales, layers, directories, and project config. **Call first.** |
 | `list_locale_dirs` | Lists locale directories grouped by layer, with file counts and top-level key namespaces |
 | `get_translations` | Reads values for dot-path keys from a locale/layer. Use `"*"` as locale for all locales |
-| `add_translations` | Adds new keys to a **layer** across locales. Fails if key already exists |
-| `update_translations` | Updates existing keys in a **layer**. Fails if key doesn't exist |
+| `add_translations` | Adds new keys to a **layer** across locales. Fails if key already exists. Supports `dryRun` |
+| `update_translations` | Updates existing keys in a **layer**. Fails if key doesn't exist. Supports `dryRun` |
 | `remove_translations` | Removes keys from ALL locale files in a **layer**. Supports `dryRun` |
 | `rename_translation_key` | Renames/moves a key across all locales in a **layer**. Conflict detection + `dryRun` |
 | `get_missing_translations` | Finds keys present in reference locale but missing/empty in targets. `""` counts as missing |
