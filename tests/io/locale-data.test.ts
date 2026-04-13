@@ -276,4 +276,28 @@ describe('mutateLocaleData', () => {
     const written = await mutateLocaleData(config, 'nonexistent', config.locales[0], () => {})
     expect(written.size).toBe(0)
   })
+
+  it('removes orphaned PHP files when namespace is deleted', async () => {
+    await setupLaravelLocales()
+    const config = makeLaravelConfig()
+    const locale = config.locales[0]
+
+    clearPhpFileCache()
+    const before = await readLocaleData(config, 'root', locale)
+    expect(before.auth).toBeDefined()
+    expect(before.validation).toBeDefined()
+
+    await mutateLocaleData(config, 'root', locale, (data) => {
+      delete data.validation
+    })
+
+    clearPhpFileCache()
+    const after = await readLocaleData(config, 'root', locale)
+    expect(after.auth).toBeDefined()
+    expect(after.validation).toBeUndefined()
+
+    const { existsSync } = await import('node:fs')
+    expect(existsSync(join(tempDir, 'lang', 'en', 'auth.php'))).toBe(true)
+    expect(existsSync(join(tempDir, 'lang', 'en', 'validation.php'))).toBe(false)
+  })
 })

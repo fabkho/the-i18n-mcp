@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { readdir, mkdir } from 'node:fs/promises'
+import { readdir, mkdir, unlink } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { readLocale, writeLocale } from './locale-io'
 import type { I18nConfig, LocaleDefinition } from '../config/types'
@@ -68,7 +68,7 @@ export async function readLocaleData(
       data = await readLocale(entry.path)
     }
     catch (err) {
-      if (err instanceof FileIOError && err.message.startsWith('File not found')) {
+      if (err instanceof FileIOError && err.code === 'FILE_NOT_FOUND') {
         data = {}
       }
       else {
@@ -129,6 +129,21 @@ export async function mutateLocaleData(
       await writeLocale(filePath, nsData as Record<string, unknown>)
       filesWritten.add(filePath)
     }
+
+    const expectedFiles = new Set(
+      Object.keys(data)
+        .filter(ns => typeof data[ns] === 'object' && data[ns] !== null)
+        .map(ns => `${ns}.php`),
+    )
+    try {
+      const existingFiles = await readdir(localePath)
+      for (const file of existingFiles) {
+        if (file.endsWith('.php') && !expectedFiles.has(file)) {
+          await unlink(join(localePath, file))
+        }
+      }
+    }
+    catch {}
   }
   else {
     const entries = await resolveLocaleEntries(config, layer, locale)
@@ -163,7 +178,8 @@ async function resolvePhpEntries(langDir: string, localeCode: string): Promise<L
   try {
     files = await readdir(localePath)
   }
-  catch {
+  catch (err) {
+    log.debug(`Failed to read locale directory ${localePath}: ${err instanceof Error ? err.message : String(err)}`)
     return []
   }
 

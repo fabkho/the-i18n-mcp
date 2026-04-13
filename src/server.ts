@@ -1,7 +1,7 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { detectI18nConfig, getCachedConfig } from './config/detector.js'
-import type { I18nConfig, ProjectConfig } from './config/types.js'
+import type { I18nConfig, LocaleDefinition, ProjectConfig } from './config/types.js'
 import type { LocaleFileFormat } from './adapters/types.js'
 import { writeReportFile } from './io/json-writer.js'
 import { readLocaleData, mutateLocaleData, resolveLocaleEntries } from './io/locale-data.js'
@@ -112,7 +112,7 @@ async function applyTranslations(
   const filesWritten = new Set<string>()
   const preview: Array<{ locale: string; key: string; value: string }> = []
 
-  const byLocale = new Map<ReturnType<typeof findLocaleImpl>, Array<{ key: string; value: string }>>()
+  const byLocale = new Map<LocaleDefinition, Array<{ key: string; value: string }>>()
 
   for (const [key, localeValues] of Object.entries(translations)) {
     for (const [localeRef, value] of Object.entries(localeValues)) {
@@ -135,7 +135,6 @@ async function applyTranslations(
   }
 
   for (const [locale, entries] of byLocale) {
-    if (!locale) continue
     if (dryRun) {
       const data = await readLocaleData(config, layer, locale)
       for (const { key, value } of entries) {
