@@ -301,7 +301,7 @@ function findLocaleImpl(config: I18nConfig, localeRef: string) {
 export function createServer(): McpServer {
   const server = new McpServer({
     name: 'the-i18n-mcp',
-    version: '0.1.0',
+    version: '2.0.0',
   })
 
   // Helper: find locale definition by locale code or file name
