@@ -1,5 +1,6 @@
 import type { FrameworkAdapter } from './types'
 import { ConfigError } from '../utils/errors'
+import { log } from '../utils/logger'
 
 const adapters: FrameworkAdapter[] = []
 
@@ -35,10 +36,15 @@ export async function detectFramework(
   }
 
   const scores = await Promise.all(
-    adapters.map(async (adapter) => ({
-      adapter,
-      confidence: await adapter.detect(projectDir),
-    })),
+    adapters.map(async (adapter) => {
+      try {
+        return { adapter, confidence: await adapter.detect(projectDir) }
+      }
+      catch (error) {
+        log.warn(`Adapter '${adapter.name}' detection failed: ${error instanceof Error ? error.message : String(error)}`)
+        return { adapter, confidence: 0 }
+      }
+    }),
   )
 
   const best = scores.reduce((a, b) => (b.confidence > a.confidence ? b : a))

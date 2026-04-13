@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, realpath } from 'node:fs/promises'
 import { resolve, relative } from 'node:path'
 import type { FrameworkAdapter, LocaleFileFormat } from '../types'
 import type { I18nConfig, LocaleDefinition, LocaleDir } from '../../config/types'
@@ -19,11 +19,15 @@ export class NuxtAdapter implements FrameworkAdapter {
     if (configFile) {
       try {
         const content = await readFile(resolve(projectDir, configFile), 'utf-8')
-        return /\bi18n\b/.test(content) ? 2 : 1
+        if (/\bi18n\b/.test(content)) return 2
       }
       catch {
-        return 1
+        // Fall through to child app scan
       }
+
+      // Root config exists but has no i18n — check child apps
+      const appDirs = await discoverNuxtApps(projectDir)
+      return appDirs.length > 0 ? 2 : 1
     }
 
     const appDirs = await discoverNuxtApps(projectDir)
@@ -132,7 +136,8 @@ async function loadAndMergeApps(appDirs: string[], discoveryRoot: string): Promi
     }
 
     for (const dir of appConfig.localeDirs) {
-      const existingLayer = seenLocalePaths.get(dir.path)
+      const realPath = await realpath(dir.path).catch(() => dir.path)
+      const existingLayer = seenLocalePaths.get(realPath)
       if (existingLayer) {
         if (dir.layer !== existingLayer) {
           allLocaleDirs.push({
@@ -144,12 +149,13 @@ async function loadAndMergeApps(appDirs: string[], discoveryRoot: string): Promi
         continue
       }
 
+      // Disambiguate layer name if already used by a different path
       let layerName = dir.layer
       if (usedLayerNames.has(layerName)) {
         layerName = deriveLayerName(dir.layerRootDir, discoveryRoot, usedLayerNames)
       }
       usedLayerNames.add(layerName)
-      seenLocalePaths.set(dir.path, layerName)
+      seenLocalePaths.set(realPath, layerName)
       allLocaleDirs.push({ ...dir, layer: layerName })
     }
 
@@ -190,7 +196,7 @@ async function extractI18nConfig(
   appDir: string,
   discoveryRoot: string,
 ): Promise<I18nConfig> {
-  const projectConfig = await loadProjectConfig(appDir)
+  const projectConfig = await loadProjectConfig(discoveryRoot)
 
   const nuxtOptions = nuxt.options as Record<string, unknown>
   const i18nOptions = nuxtOptions.i18n as Record<string, unknown> | undefined
@@ -291,7 +297,8 @@ async function discoverLocaleDirs(
       continue
     }
 
-    const existingLayer = resolvedPaths.get(resolvedDir)
+    const realDir = await realpath(resolvedDir).catch(() => resolvedDir)
+    const existingLayer = resolvedPaths.get(realDir)
     if (existingLayer) {
       dirs.push({
         path: resolvedDir,
@@ -310,7 +317,7 @@ async function discoverLocaleDirs(
       continue
     }
 
-    resolvedPaths.set(resolvedDir, layerName)
+    resolvedPaths.set(realDir, layerName)
     dirs.push({
       path: resolvedDir,
       layer: layerName,
