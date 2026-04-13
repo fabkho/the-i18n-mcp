@@ -103,7 +103,7 @@ async function applyTranslations(
   translations: Record<string, Record<string, string>>,
   mode: 'add' | 'update',
   findLocale: (config: I18nConfig, ref: string) => ReturnType<typeof findLocaleImpl>,
-  resolveLocaleFilePath: (config: I18nConfig, layer: string, file: string) => string | null,
+  resolveLocaleFilePath: (config: I18nConfig, layer: string, file: string | undefined) => string | null,
   dryRun = false,
 ): Promise<{ applied: string[]; skipped: string[]; warnings: string[]; filesWritten: number; preview?: Array<{ locale: string; key: string; value: string }> }> {
   const applied: string[] = []
@@ -316,7 +316,8 @@ export function createServer(): McpServer {
   })
 
   // Helper: resolve locale file path for a layer + locale file name
-  function resolveLocaleFilePath(config: I18nConfig, layer: string, localeFile: string): string | null {
+  function resolveLocaleFilePath(config: I18nConfig, layer: string, localeFile: string | undefined): string | null {
+    if (!localeFile) return null
     const dir = config.localeDirs.find(d => d.layer === layer)
     if (!dir) return null
     // If this is an alias, resolve to the aliased layer's dir
