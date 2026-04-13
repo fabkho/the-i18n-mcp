@@ -1,3 +1,4 @@
+// App-admin layer — extends the root playground
 export default defineNuxtConfig({
   extends: ['../'],
 
