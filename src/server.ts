@@ -15,6 +15,7 @@ import {
   validateTranslationValue,
 } from './io/key-operations.js'
 import { scanSourceFiles, toRelativePath, buildDynamicKeyRegexes, buildIgnorePatternRegexes } from './scanner/code-scanner.js'
+import { getPatternSet } from './scanner/patterns.js'
 import { log } from './utils/logger.js'
 import { ToolError } from './utils/errors.js'
 import { resolve } from 'node:path'
@@ -1566,7 +1567,7 @@ export function createServer(): McpServer {
         const allDynamicKeys: Array<{ expression: string; file: string; line: number; callee: string }> = []
 
         for (const scanDir of dirsToScan) {
-          const result = await scanSourceFiles(scanDir, excludeDirs)
+          const result = await scanSourceFiles(scanDir, excludeDirs, getPatternSet(config.localeFileFormat))
           totalFilesScanned += result.filesScanned
           for (const key of result.uniqueKeys) {
             combinedUniqueKeys.add(key)
@@ -1685,7 +1686,7 @@ export function createServer(): McpServer {
         let totalFilesScanned = 0
 
         for (const scanDir of dirsToScan) {
-          const result = await scanSourceFiles(scanDir, excludeDirs)
+          const result = await scanSourceFiles(scanDir, excludeDirs, getPatternSet(config.localeFileFormat))
           totalFilesScanned += result.filesScanned
           allUsages.push(...result.usages)
           allDynamicKeys.push(...result.dynamicKeys)
@@ -1864,7 +1865,7 @@ export function createServer(): McpServer {
         const allDynamicKeys: Array<{ expression: string; file: string; line: number }> = []
 
         for (const scanDir of dirsToScan) {
-          const result = await scanSourceFiles(scanDir, excludeDirs)
+          const result = await scanSourceFiles(scanDir, excludeDirs, getPatternSet(config.localeFileFormat))
           totalFilesScanned += result.filesScanned
           for (const key of result.uniqueKeys) combinedUniqueKeys.add(key)
           allDynamicKeys.push(...result.dynamicKeys.map(dk => ({
