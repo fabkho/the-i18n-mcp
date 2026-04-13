@@ -1,6 +1,7 @@
 import type { I18nConfig } from './types'
 import { registerAdapter, detectFramework } from '../adapters/registry'
 import { NuxtAdapter } from '../adapters/nuxt/index'
+import { LaravelAdapter } from '../adapters/laravel/index'
 import { loadProjectConfig } from './project-config'
 import { log } from '../utils/logger'
 import { canonicalPath } from './discovery'
@@ -8,6 +9,7 @@ import { canonicalPath } from './discovery'
 export { discoverNuxtApps } from './discovery'
 
 registerAdapter(new NuxtAdapter())
+registerAdapter(new LaravelAdapter())
 
 const configCache = new Map<string, I18nConfig>()
 

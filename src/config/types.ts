@@ -1,13 +1,15 @@
+import type { LocaleFileFormat } from '../adapters/types'
+
 /**
- * A single locale definition as detected from the Nuxt i18n config.
+ * A single locale definition as detected from the framework config.
  */
 export interface LocaleDefinition {
   /** Locale code used in URLs and as identifier (e.g., 'de', 'en', 'en-us') */
   code: string
   /** BCP-47 language tag (e.g., 'de-DE', 'en-GB') */
   language: string
-  /** Locale JSON filename (e.g., 'de-DE.json') */
-  file: string
+  /** Locale filename (e.g., 'de-DE.json'). Optional for directory-per-locale layouts (Laravel). */
+  file?: string
   /** Human-readable name (e.g., 'Deutsch') */
   name?: string
 }
@@ -74,8 +76,10 @@ export interface I18nConfig {
   locales: LocaleDefinition[]
   /** All discovered locale directories, per layer */
   localeDirs: LocaleDir[]
-  /** Root directories of ALL Nuxt layers (including those without locale files). Used for source code scanning. */
+  /** Root directories of all framework layers/roots. Used for source code scanning. */
   layerRootDirs: string[]
   /** Optional project-specific config from .i18n-mcp.json */
   projectConfig?: ProjectConfig
+  /** Locale file format used by this project (default: 'json') */
+  localeFileFormat?: LocaleFileFormat
 }
