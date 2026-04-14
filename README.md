@@ -173,6 +173,29 @@ monorepo/
 
 Discovery stops descending into a directory once it finds a `nuxt.config` — nested Nuxt layers are loaded by `@nuxt/kit` automatically.
 
+## Model Selection for Translations
+
+`translate_missing` uses [MCP sampling](https://modelcontextprotocol.io/docs/concepts/sampling) — the host (VS Code, Cursor, Claude Desktop) picks which LLM fulfills the request. The server sends `modelPreferences` hinting toward fast, cheap models since translation is high-volume and doesn't require frontier reasoning.
+
+**Built-in defaults** (used when no `samplingPreferences` in `.i18n-mcp.json`):
+
+| Priority | Value | Rationale |
+|----------|-------|-----------|
+| `hints` | `["flash", "haiku", "gpt-4o-mini"]` | Fastest models across providers (substring match) |
+| `speedPriority` | `0.9` | Users watch a progress bar — latency matters |
+| `costPriority` | `0.8` | Hundreds of batches add up |
+| `intelligencePriority` | `0.3` | Translation needs quality, not reasoning |
+
+Override via `samplingPreferences` in [`.i18n-mcp.json`](#project-config) if needed (e.g., to prefer a stronger model for nuanced locales).
+
+**Controlling the model in VS Code:**
+
+1. Command Palette → **MCP: List Servers** → select `the-i18n-mcp` → **Configure Model Access**
+2. Restrict to your preferred model (e.g., only Gemini 2.5 Flash)
+3. Your main chat/agent session continues using whatever model you chose — the restriction only applies to sampling requests from this MCP server
+
+> **Tip:** For large translation runs (1000+ keys), restricting to a fast model like Gemini 2.5 Flash significantly reduces wall-clock time. The model access restriction is per-MCP-server and independent from your agent's model.
+
 ## Project Config
 
 Optionally drop a `.i18n-mcp.json` at your project root to give the agent project-specific context. Everything is optional — the server passes them to the agent, which interprets the natural-language rules. The server walks up from `projectDir` to find the nearest config file (like ESLint or tsconfig resolution).
@@ -195,6 +218,7 @@ For IDE autocompletion, point to the schema:
 | `examples` | Few-shot translation examples demonstrating project style |
 | `orphanScan` | Per-layer config for orphan detection: `scanDirs` (overrides auto-discovered dirs) and `ignorePatterns` (glob) |
 | `reportOutput` | `true` for default `.i18n-reports/` dir, or a string for a custom path. Diagnostic tools write full output to disk and return only a summary in the MCP response |
+| `samplingPreferences` | Override model preferences for `translate_missing` sampling. See [Model Selection](#model-selection-for-translations) |
 
 ### Full example
 
@@ -242,7 +266,13 @@ For IDE autocompletion, point to the schema:
       "scanDirs": ["apps/admin"]
     }
   },
-  "reportOutput": true
+  "reportOutput": true,
+  "samplingPreferences": {
+    "hints": ["sonnet", "gpt-4o"],
+    "intelligencePriority": 0.7,
+    "speedPriority": 0.5,
+    "costPriority": 0.3
+  }
 }
 ```
 

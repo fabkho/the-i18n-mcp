@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module'
+import type { ModelPreferences } from '@modelcontextprotocol/sdk/types.js'
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 
@@ -26,6 +27,24 @@ import { ToolError } from './utils/errors.js'
 import { resolve } from 'node:path'
 import { readdir } from 'node:fs/promises'
 import { scaffoldLocale } from './tools/scaffold-locale.js'
+
+const DEFAULT_SAMPLING_PREFERENCES: ModelPreferences = {
+  hints: [{ name: 'flash' }, { name: 'haiku' }, { name: 'gpt-4o-mini' }],
+  costPriority: 0.8,
+  speedPriority: 0.9,
+  intelligencePriority: 0.3,
+}
+
+function resolveSamplingPreferences(projectConfig?: ProjectConfig): ModelPreferences {
+  const userPrefs = projectConfig?.samplingPreferences
+  if (!userPrefs) return DEFAULT_SAMPLING_PREFERENCES
+  return {
+    hints: userPrefs.hints?.map(name => ({ name })) ?? DEFAULT_SAMPLING_PREFERENCES.hints,
+    costPriority: userPrefs.costPriority ?? DEFAULT_SAMPLING_PREFERENCES.costPriority,
+    speedPriority: userPrefs.speedPriority ?? DEFAULT_SAMPLING_PREFERENCES.speedPriority,
+    intelligencePriority: userPrefs.intelligencePriority ?? DEFAULT_SAMPLING_PREFERENCES.intelligencePriority,
+  }
+}
 
 function resolveOrphanScanDirs(
   config: I18nConfig,
@@ -1515,6 +1534,7 @@ export function createServer(): McpServer {
                     config.localeFileFormat,
                   )
 
+                  const SAMPLING_TIMEOUT_MS = 120_000 // 2 minutes per batch
                   const samplingResult = await server.server.createMessage({
                     messages: [
                       {
@@ -1525,6 +1545,9 @@ export function createServer(): McpServer {
                     systemPrompt,
                     maxTokens: 4096,
                     includeContext: 'none',
+                    modelPreferences: resolveSamplingPreferences(config.projectConfig),
+                  }, {
+                    timeout: SAMPLING_TIMEOUT_MS,
                   })
 
                   const responseText = samplingResult.content.type === 'text'
