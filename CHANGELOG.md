@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/fabkho/the-i18n-mcp/compare/v2.0.0...v2.1.0) (2026-04-14)
+
+
+### Features
+
+* add scaffold_locale tool and add-language prompt ([#58](https://github.com/fabkho/the-i18n-mcp/issues/58)) ([547a981](https://github.com/fabkho/the-i18n-mcp/commit/547a981e492b7013eede3e52805e1de1ef7a9b0a))
+
 ## [2.0.0](https://github.com/fabkho/the-i18n-mcp/compare/v1.5.1...v2.0.0) (2026-04-14)
 
 
