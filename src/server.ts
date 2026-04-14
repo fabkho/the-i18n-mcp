@@ -5,7 +5,7 @@ import { z } from 'zod'
 const require = createRequire(import.meta.url)
 const { version } = require('../package.json') as { version: string }
 
-import { detectI18nConfig, getCachedConfig } from './config/detector.js'
+import { detectI18nConfig, getCachedConfig, clearConfigCache } from './config/detector.js'
 import type { I18nConfig, LocaleDefinition, ProjectConfig } from './config/types.js'
 import type { LocaleFileFormat } from './adapters/types.js'
 import { writeReportFile } from './io/json-writer.js'
@@ -333,6 +333,7 @@ export function createServer(): McpServer {
     async ({ projectDir }) => {
       try {
         const dir = projectDir ?? process.cwd()
+        clearConfigCache()
         const config = await detectI18nConfig(dir)
         return {
           content: [
