@@ -2332,8 +2332,9 @@ Follow these steps:
    - **Laravel**: Add the locale code to the \`available_locales\` array in \`config/app.php\`.
 3. Call \`scaffold_locale\` with the new locale code to create empty locale files in all layers.
 4. Call \`translate_missing\` for each layer to auto-translate all keys from the default locale.
-   - If auto-translation is unavailable, use \`get_translations\` to read the default locale, translate the keys yourself, then call \`add_translations\`.
-5. Report a summary: locale code added, files created, keys translated per layer.`
+   - If auto-translation is unavailable, use \`get_translations\` to read the default locale, translate the keys yourself, then call \`update_translations\`.
+5. Call \`get_missing_translations\` to verify the new locale has zero missing keys in every layer.
+6. Report a summary: locale code added, files created, keys translated per layer.`
 
       return {
         messages: [

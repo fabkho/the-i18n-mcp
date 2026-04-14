@@ -172,11 +172,11 @@ describe('scaffoldLocale', () => {
     expect(result.skipped[0].layer).toBe('root')
   })
 
-  it('throws when an explicit locale is not found in config', async () => {
+  it('throws LOCALE_NOT_FOUND when an explicit locale is not found in config', async () => {
     const config = createTestConfig(existingLocales)
 
     await expect(scaffoldLocale(config, { locales: ['sv'] }))
-      .rejects.toThrow('Locale "sv" not found in config')
+      .rejects.toMatchObject({ code: 'LOCALE_NOT_FOUND' })
   })
 
   it('returns empty created array when all requested locales already have files', async () => {
@@ -186,6 +186,26 @@ describe('scaffoldLocale', () => {
 
     expect(result.created).toEqual([])
     expect(result.skipped.length).toBe(2)
+  })
+
+  it('throws LAYER_NOT_FOUND when layer does not exist', async () => {
+    const config = createTestConfig(existingLocales)
+
+    await expect(scaffoldLocale(config, { layer: 'nonexistent' }))
+      .rejects.toMatchObject({ code: 'LAYER_NOT_FOUND' })
+  })
+
+  it('throws LAYER_IS_ALIAS when targeting an alias layer', async () => {
+    const config: I18nConfig = {
+      ...createTestConfig(existingLocales),
+      localeDirs: [
+        { path: tmpRootLocales, layer: 'root', layerRootDir: tmpDir },
+        { path: tmpRootLocales, layer: 'root-alias', layerRootDir: tmpDir, aliasOf: 'root' },
+      ],
+    }
+
+    await expect(scaffoldLocale(config, { layer: 'root-alias' }))
+      .rejects.toMatchObject({ code: 'LAYER_IS_ALIAS' })
   })
 
   it('every leaf value in the scaffolded file is an empty string', async () => {

@@ -4,6 +4,7 @@ import type { I18nConfig, LocaleDefinition } from '../config/types'
 import { readLocaleData, resolveLocaleEntries } from '../io/locale-data'
 import { readLocale, writeLocale } from '../io/locale-io'
 import { getLeafKeys } from '../io/key-operations'
+import { ToolError } from '../utils/errors'
 
 export interface ScaffoldLocaleOptions {
   locales?: string[]
@@ -48,15 +49,37 @@ export async function scaffoldLocale(
     ? config.localeDirs.filter(d => d.layer === layerFilter)
     : config.localeDirs.filter(d => !d.aliasOf)
 
+  if (layerFilter && layers.length === 0) {
+    throw new ToolError(
+      `Layer not found: "${layerFilter}". Available: ${config.localeDirs.map(d => d.layer).join(', ')}`,
+      'LAYER_NOT_FOUND',
+    )
+  }
+
+  if (layerFilter && layers[0]?.aliasOf) {
+    throw new ToolError(
+      `Layer "${layerFilter}" is an alias of "${layers[0].aliasOf}". Use the target layer instead.`,
+      'LAYER_IS_ALIAS',
+    )
+  }
+
   const refLocale = config.locales.find(l => l.code === config.defaultLocale)
   if (!refLocale) {
-    throw new Error(`Default locale "${config.defaultLocale}" not found in config`)
+    throw new ToolError(
+      `Default locale "${config.defaultLocale}" not found in config`,
+      'LOCALE_NOT_FOUND',
+    )
   }
 
   const targetLocales = localeCodes
     ? localeCodes.map((code) => {
         const loc = config.locales.find(l => l.code === code)
-        if (!loc) throw new Error(`Locale "${code}" not found in config`)
+        if (!loc) {
+          throw new ToolError(
+            `Locale "${code}" not found in config. Available: ${config.locales.map(l => l.code).join(', ')}`,
+            'LOCALE_NOT_FOUND',
+          )
+        }
         return loc
       })
     : findNewLocales(config, layers)
@@ -85,7 +108,12 @@ async function scaffoldJsonLayer(
   skipped: ScaffoldedFile[],
 ): Promise<void> {
   const refData = await readLocaleData(config, dir.layer, refLocale)
-  if (Object.keys(refData).length === 0) return
+  if (Object.keys(refData).length === 0) {
+    throw new ToolError(
+      `Reference locale "${refLocale.code}" has no data in layer "${dir.layer}". Cannot scaffold without reference keys.`,
+      'NO_REFERENCE_DATA',
+    )
+  }
 
   const emptyData = buildEmptyStructure(refData)
   const keyCount = getLeafKeys(refData).length
@@ -116,7 +144,12 @@ async function scaffoldPhpLayer(
   skipped: ScaffoldedFile[],
 ): Promise<void> {
   const refEntries = await resolveLocaleEntries(config, dir.layer, refLocale)
-  if (refEntries.length === 0) return
+  if (refEntries.length === 0) {
+    throw new ToolError(
+      `Reference locale "${refLocale.code}" has no PHP files in layer "${dir.layer}". Cannot scaffold without reference keys.`,
+      'NO_REFERENCE_DATA',
+    )
+  }
 
   for (const target of targets) {
     const targetDir = join(dir.path, target.code)
