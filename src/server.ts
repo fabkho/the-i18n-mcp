@@ -807,13 +807,17 @@ export function createServer(): McpServer {
           .array(z.string())
           .optional()
           .describe('Locale codes to check for missing keys (e.g., ["de", "fr", "es"]). Defaults to all locales except the reference.'),
+        locales: z
+          .array(z.string())
+          .optional()
+          .describe('Alias for targetLocales (deprecated — use targetLocales instead).'),
         projectDir: z
           .string()
           .optional()
           .describe('Absolute path to the Nuxt project root. Defaults to server cwd. Example: "/home/user/my-app".'),
       },
     },
-    async ({ layer, referenceLocale, targetLocales, projectDir }) => {
+    async ({ layer, referenceLocale, targetLocales, locales, projectDir }) => {
       try {
         const dir = projectDir ?? process.cwd()
         const config = await detectI18nConfig(dir)
@@ -826,8 +830,9 @@ export function createServer(): McpServer {
         }
 
         // Determine target locales
-        const targets = targetLocales
-          ? targetLocales.map((code) => {
+        const resolvedTargets = targetLocales ?? locales
+        const targets = resolvedTargets
+          ? resolvedTargets.map((code) => {
               const loc = findLocale(config, code)
               if (!loc) {
                 throw new ToolError(`Target locale not found: "${code}". Available: ${config.locales.map(l => l.code).join(', ')}. Pass valid locale codes in targetLocales.`, 'LOCALE_NOT_FOUND')
@@ -1417,6 +1422,10 @@ export function createServer(): McpServer {
           .array(z.string())
           .optional()
           .describe('Locale codes to translate into (e.g., ["de", "fr", "sv"]). Defaults to all locales except the reference.'),
+        locales: z
+          .array(z.string())
+          .optional()
+          .describe('Alias for targetLocales (deprecated — use targetLocales instead).'),
         keys: z
           .array(z.string())
           .optional()
@@ -1435,7 +1444,7 @@ export function createServer(): McpServer {
           .describe('Absolute path to the Nuxt project root. Defaults to server cwd. Example: "/home/user/my-app".'),
       },
     },
-    async ({ layer, referenceLocale, targetLocales, keys, batchSize, dryRun, projectDir }, extra) => {
+    async ({ layer, referenceLocale, targetLocales, locales, keys, batchSize, dryRun, projectDir }, extra) => {
       try {
         const dir = projectDir ?? process.cwd()
         const config = await detectI18nConfig(dir)
@@ -1464,9 +1473,9 @@ export function createServer(): McpServer {
           return typeof v === 'string' ? v.length > 0 : v !== null && v !== undefined
         })
 
-        // Determine target locales
-        const targets = targetLocales
-          ? targetLocales.map((code) => {
+        const resolvedTargetLocales = targetLocales ?? locales
+        const targets = resolvedTargetLocales
+          ? resolvedTargetLocales.map((code) => {
               const loc = findLocale(config, code)
               if (!loc) {
                 throw new ToolError(`Target locale not found: "${code}". Available: ${config.locales.map(l => l.code).join(', ')}. Pass valid locale codes in targetLocales.`, 'LOCALE_NOT_FOUND')
