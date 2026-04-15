@@ -212,7 +212,9 @@ Flat layouts work too — `app-shop/` and `app-admin/` at the project root are d
 
 ## Model Selection for Translations
 
-`translate_missing` uses [MCP sampling](https://modelcontextprotocol.io/docs/concepts/sampling) — the host (VS Code, Cursor, Claude Desktop) picks which LLM fulfills the request. The server sends `modelPreferences` hinting toward fast, cheap models since translation is high-volume and doesn't require frontier reasoning.
+`translate_missing` uses [MCP sampling](https://modelcontextprotocol.io/docs/concepts/sampling) — the host picks which LLM fulfills the request. The server sends `modelPreferences` hinting toward fast, cheap models since translation is high-volume and doesn't require frontier reasoning.
+
+> **Recommended host: VS Code.** VS Code has the most complete MCP sampling implementation — it supports `temperature`, `modelPreferences`, `systemPrompt` hoisting, and lets you restrict which models the server can use per-server via the UI. Other hosts vary in their sampling support: some ignore `modelPreferences` or don't expose model selection. If `translate_missing` behaves unexpectedly (wrong model, no temperature control), your host's sampling implementation is likely the bottleneck.
 
 **How batching works:** each batch sends up to 50 keys (configurable via `batchSize`) to the host LLM. Locales are processed sequentially within a single call — but since each locale writes to its own file, you can call `translate_missing` once per locale in parallel for faster throughput. A progress bar tracks completion across all locales and batches.
 
