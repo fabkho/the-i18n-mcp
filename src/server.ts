@@ -28,14 +28,14 @@ import { resolve } from 'node:path'
 import { readdir } from 'node:fs/promises'
 import { scaffoldLocale } from './tools/scaffold-locale.js'
 
-const DEFAULT_SAMPLING_PREFERENCES: ModelPreferences = {
+export const DEFAULT_SAMPLING_PREFERENCES: ModelPreferences = {
   hints: [{ name: 'flash' }, { name: 'haiku' }, { name: 'gpt-4o-mini' }],
   costPriority: 0.8,
   speedPriority: 0.9,
   intelligencePriority: 0.3,
 }
 
-function resolveSamplingPreferences(projectConfig?: ProjectConfig): ModelPreferences {
+export function resolveSamplingPreferences(projectConfig?: ProjectConfig): ModelPreferences {
   const userPrefs = projectConfig?.samplingPreferences
   if (!userPrefs) return DEFAULT_SAMPLING_PREFERENCES
   return {
@@ -1366,7 +1366,7 @@ export function createServer(): McpServer {
         batchSize: z
           .number()
           .optional()
-          .describe('Max keys per LLM sampling request. Default: 50. Lower values reduce per-batch risk but increase round trips.'),
+          .describe(          'Max keys per LLM sampling request. Default: 200. Lower values reduce per-batch risk but increase round trips.'),
         dryRun: z
           .boolean()
           .optional()
@@ -1382,7 +1382,7 @@ export function createServer(): McpServer {
         const dir = projectDir ?? process.cwd()
         const config = await detectI18nConfig(dir)
         const isDryRun = dryRun ?? false
-        const maxBatch = batchSize ?? 50
+        const maxBatch = batchSize ?? 200
 
         // Validate layer
         const localeDir = findLayerOrThrow(config, layer)
@@ -1593,8 +1593,6 @@ export function createServer(): McpServer {
                 })
               } catch (error) {
                 log.warn(`Failed to write translations for ${target.code}: ${error instanceof Error ? error.message : String(error)}`)
-                failed.push(...translated)
-                translated.length = 0
                 results[target.code] = { translated: [], failed: [...Object.keys(keysAndValues)], samplingUsed: true, writeError: error instanceof Error ? error.message : String(error) }
                 continue
               }
