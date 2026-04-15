@@ -46,6 +46,14 @@ export function resolveSamplingPreferences(projectConfig?: ProjectConfig): Model
   }
 }
 
+/**
+ * Compute maxTokens for a sampling request based on batch key count.
+ * Scales linearly (40 tokens per key + 512 base) capped at 16384.
+ */
+export function computeMaxTokens(batchKeyCount: number): number {
+  return Math.min(16384, batchKeyCount * 40 + 512)
+}
+
 function resolveOrphanScanDirs(
   config: I18nConfig,
   layer: string | undefined,
@@ -319,6 +327,57 @@ export function buildTranslationUserMessage(
     '',
     JSON.stringify(keysAndValues),
   ].join('\n')
+}
+
+export function extractJsonFromResponse(responseText: string): Record<string, unknown> {
+  const trimmed = responseText.trim()
+
+  // Tier 1: direct parse
+  try {
+    return JSON.parse(trimmed) as Record<string, unknown>
+  } catch {}
+
+  // Tier 2: strip markdown code fences
+  if (trimmed.startsWith('```')) {
+    const stripped = trimmed.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
+    try {
+      return JSON.parse(stripped) as Record<string, unknown>
+    } catch {}
+  }
+
+  // Tier 3: balanced bracket extraction — find first complete {...}
+  const start = trimmed.indexOf('{')
+  if (start !== -1) {
+    let depth = 0
+    let inString = false
+    let escape = false
+    for (let i = start; i < trimmed.length; i++) {
+      const ch = trimmed[i]
+      if (escape) {
+        escape = false
+        continue
+      }
+      if (ch === '\\' && inString) {
+        escape = true
+        continue
+      }
+      if (ch === '"') {
+        inString = !inString
+        continue
+      }
+      if (inString) continue
+      if (ch === '{') depth++
+      else if (ch === '}') {
+        depth--
+        if (depth === 0) {
+          const candidate = trimmed.slice(start, i + 1)
+          return JSON.parse(candidate) as Record<string, unknown>
+        }
+      }
+    }
+  }
+
+  throw new Error('No valid JSON object found in response')
 }
 
 /**
@@ -1524,16 +1583,19 @@ export function createServer(): McpServer {
               const totalBatches = Math.ceil(keyEntries.length / maxBatch)
               let batchTranslations: Record<string, string> | null = null
 
-              for (let attempt = 0; attempt < 2; attempt++) {
-                try {
-                  const systemPrompt = buildTranslationSystemPrompt(config.projectConfig, target.language || target.code, config.localeFileFormat)
-                  const userMessage = buildTranslationUserMessage(
-                    refLocale.language || refLocale.code,
-                    target.language || target.code,
-                    batch,
-                    config.localeFileFormat,
-                  )
+              const systemPrompt = buildTranslationSystemPrompt(config.projectConfig, target.language || target.code, config.localeFileFormat)
+              const userMessage = buildTranslationUserMessage(
+                refLocale.language || refLocale.code,
+                target.language || target.code,
+                batch,
+                config.localeFileFormat,
+              )
 
+              for (let attempt = 0; attempt < 2; attempt++) {
+                if (attempt > 0) {
+                  await new Promise(r => setTimeout(r, 2000))
+                }
+                try {
                   const SAMPLING_TIMEOUT_MS = 120_000 // 2 minutes per batch
                   const samplingResult = await server.server.createMessage({
                     messages: [
@@ -1543,7 +1605,8 @@ export function createServer(): McpServer {
                       },
                     ],
                     systemPrompt,
-                    maxTokens: 4096,
+                    maxTokens: computeMaxTokens(Object.keys(batch).length),
+                    temperature: 0,
                     includeContext: 'none',
                     modelPreferences: resolveSamplingPreferences(config.projectConfig),
                   }, {
@@ -1559,12 +1622,14 @@ export function createServer(): McpServer {
                     samplingModelLogged = true
                   }
 
-                  let cleanJson = responseText.trim()
-                  if (cleanJson.startsWith('```')) {
-                    cleanJson = cleanJson.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
+                  const parsed = extractJsonFromResponse(responseText)
+                  const batchKeys = new Set(Object.keys(batch))
+                  batchTranslations = {} as Record<string, string>
+                  for (const [key, value] of Object.entries(parsed)) {
+                    if (batchKeys.has(key) && typeof value === 'string') {
+                      batchTranslations[key] = value
+                    }
                   }
-
-                  batchTranslations = JSON.parse(cleanJson) as Record<string, string>
                   break // success — stop retrying
                 } catch (error) {
                   if (attempt === 0) {
