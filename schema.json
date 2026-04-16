@@ -90,18 +90,10 @@
     },
     "orphanScan": {
       "type": "object",
-      "description": "Per-layer scan directories for orphan key detection. In monorepos, a shared layer's keys may be used across multiple apps. Map each layer name to the directories that should be scanned for its key usage. Paths are relative to the project root.",
+      "description": "Per-layer configuration for orphan key detection. Map each layer name to its settings. Scan directories are automatically determined from each layer's root directory.",
       "additionalProperties": {
         "type": "object",
-        "required": ["scanDirs"],
         "properties": {
-          "scanDirs": {
-            "type": "array",
-            "description": "Directories to scan for key usage (relative to project root).",
-            "items": {
-              "type": "string"
-            }
-          },
           "ignorePatterns": {
             "type": "array",
             "description": "Glob patterns for translation keys to exclude from orphan detection (e.g., \"common.datetime.months.*\"). Use * to match a single key segment, ** to match any depth.",

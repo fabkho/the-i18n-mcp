@@ -22,27 +22,27 @@ export interface ScanPatternSet {
 // ─── Vue / Nuxt Patterns ────────────────────────────────────────
 
 /**
- * Matches static i18n calls: $t('key'), t('key'), this.$t('key'), and double-quote variants.
- * Group 1: callee ($t | t | this.$t)
+ * Matches static i18n calls: $t('key'), t('key'), this.$t('key'), $te('key'), this.$te('key'), and double-quote variants.
+ * Group 1: callee ($t | t | this.$t | $te | this.$te)
  * Group 2: quote character
  * Group 3: the key string
  */
-const VUE_STATIC_KEY = /(?<!\w)(this\.\$t|\$t|\bt)\s*\(\s*(['"])((?:(?!\2).)*)\2/g
+const VUE_STATIC_KEY = /(?<!\w)(this\.\$te?|\$te?|\bt)\s*\(\s*(['"])((?:(?!\2).)*)\2/g
 
 /**
- * Matches dynamic i18n calls with template literals: $t(`prefix.${var}`), t(`...`), this.$t(`...`)
+ * Matches dynamic i18n calls with template literals: $t(`prefix.${var}`), t(`...`), this.$t(`...`), $te(`...`), this.$te(`...`)
  * Group 1: callee
  * Group 2: template literal content (without backticks)
  */
-const VUE_DYNAMIC_KEY = /(?<!\w)(this\.\$t|\$t|\bt)\s*\(\s*`((?:[^`]|\\.)*)`/g
+const VUE_DYNAMIC_KEY = /(?<!\w)(this\.\$te?|\$te?|\bt)\s*\(\s*`((?:[^`]|\\.)*)`/g
 
 /**
- * Matches concatenation-based dynamic keys: t('prefix.' + var), $t("key." + expr)
+ * Matches concatenation-based dynamic keys: t('prefix.' + var), $t("key." + expr), $te('prefix.' + var), this.$te("key." + expr)
  * Group 1: callee
  * Group 2: quote character
  * Group 3: the static prefix string
  */
-const VUE_CONCAT_KEY = /(?<!\w)(this\.\$t|\$t|\bt)\s*\(\s*(['"])((?:(?!\2).)*)\2\s*\+/g
+const VUE_CONCAT_KEY = /(?<!\w)(this\.\$te?|\$te?|\bt)\s*\(\s*(['"])((?:(?!\2).)*)\2\s*\+/g
 
 export const VUE_NUXT_PATTERNS: ScanPatternSet = {
   label: 'Vue / Nuxt',

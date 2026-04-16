@@ -54,16 +54,6 @@ export function computeMaxTokens(batchKeyCount: number): number {
   return Math.min(16384, batchKeyCount * 40 + 512)
 }
 
-function resolveOrphanScanDirs(
-  config: I18nConfig,
-  layer: string | undefined,
-): string[] | undefined {
-  if (!layer || !config.projectConfig?.orphanScan) return undefined
-  const layerConfig = config.projectConfig.orphanScan[layer]
-  if (!layerConfig) return undefined
-  return layerConfig.scanDirs.map(d => resolve(config.rootDir, d))
-}
-
 // ─── Report output helpers ──────────────────────────────────────
 
 const DEFAULT_REPORT_DIR = '.i18n-reports'
@@ -79,11 +69,6 @@ export function validateReportPath(baseDir: string, absPath: string): void {
   }
 }
 
-/**
- * Resolve the report file path from project config.
- * Returns undefined if reportOutput is not configured,
- * or the absolute path to `<reportDir>/<toolName>.json`.
- */
 function resolveReportFilePath(
   config: I18nConfig,
   dir: string,
@@ -1770,7 +1755,6 @@ export function createServer(): McpServer {
         const dir = projectDir ?? process.cwd()
         const config = await detectI18nConfig(dir)
 
-        // Determine which locale to read keys from
         const localeCode = locale ?? config.defaultLocale
         const localeDef = findLocale(config, localeCode)
         if (!localeDef) {
@@ -1780,7 +1764,6 @@ export function createServer(): McpServer {
           )
         }
 
-        // Determine layers to check
         const layersToCheck = layer
           ? config.localeDirs.filter(d => d.layer === layer)
           : config.localeDirs.filter(d => !d.aliasOf)
@@ -1792,7 +1775,6 @@ export function createServer(): McpServer {
           throw new ToolError('No locale directories found.', 'LAYER_NOT_FOUND')
         }
 
-        // Reject alias layers — they share files with their target layer
         if (layer && layersToCheck[0]?.aliasOf) {
           throw new ToolError(
             `Layer "${layer}" is an alias of "${layersToCheck[0].aliasOf}". Use the target layer instead.`,
@@ -1800,7 +1782,7 @@ export function createServer(): McpServer {
           )
         }
 
-        const allTranslationKeys = new Map<string, string>()
+        const keysByLayer = new Map<string, { keys: string[]; localeDir: LocaleDir }>()
         for (const localeDir of layersToCheck) {
           let data: Record<string, unknown>
           try {
@@ -1809,14 +1791,11 @@ export function createServer(): McpServer {
             continue
           }
           if (Object.keys(data).length === 0) continue
-
-          const leafKeys = getLeafKeys(data)
-          for (const key of leafKeys) {
-            allTranslationKeys.set(key, localeDir.layer)
-          }
+          keysByLayer.set(localeDir.layer, { keys: getLeafKeys(data), localeDir })
         }
 
-        if (allTranslationKeys.size === 0) {
+        const totalKeys = [...keysByLayer.values()].reduce((sum, v) => sum + v.keys.length, 0)
+        if (totalKeys === 0) {
           const emptyOutput = { orphanKeys: [], summary: { totalKeys: 0, orphanCount: 0, filesScanned: 0, message: 'No translation keys found in locale files.' } }
           const reportPath = resolveReportFilePath(config, dir, 'find_orphan_keys')
           if (reportPath) {
@@ -1829,58 +1808,59 @@ export function createServer(): McpServer {
             }
           }
           return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify(emptyOutput, null, 2),
-              },
-            ],
+            content: [{ type: 'text' as const, text: JSON.stringify(emptyOutput, null, 2) }],
           }
         }
 
-        // Determine directories to scan for source code.
-        // Use all layer roots (not just those with locale dirs) so layers without
-        // i18n/locales/ still have their source files scanned for key usage.
-        const dirsToScan = scanDirs ?? resolveOrphanScanDirs(config, layer) ?? config.layerRootDirs
-
-        // Scan all source files for key usage
-        const combinedUniqueKeys = new Set<string>()
-        let totalFilesScanned = 0
-        const allDynamicKeys: Array<{ expression: string; file: string; line: number; callee: string }> = []
-
-        for (const scanDir of dirsToScan) {
-          const result = await scanSourceFiles(scanDir, excludeDirs, getPatternSet(config.localeFileFormat))
-          totalFilesScanned += result.filesScanned
-          for (const key of result.uniqueKeys) {
-            combinedUniqueKeys.add(key)
-          }
-          allDynamicKeys.push(...result.dynamicKeys)
-        }
-
-        // Find orphan keys: translation keys not referenced in source code
-        const dynamicKeyRegexes = buildDynamicKeyRegexes(allDynamicKeys)
-        const ignorePatterns = resolveOrphanIgnorePatterns(config, layer)
-        const ignoreRegexes = ignorePatterns ? buildIgnorePatternRegexes(ignorePatterns) : []
-
+        // Per-layer scanning: scan from each layer's rootDir.
+        // Root layer's rootDir = project root → scans everything (root + all child apps).
+        // App layer's rootDir = app dir → scans only that app.
+        // When explicit scanDirs are provided, use them for all layers (backward compat).
         const orphanKeys: Array<{ key: string; layer: string }> = []
-        let dynamicMatchedCount = 0
-        let ignoredCount = 0
-        for (const [key, keyLayer] of allTranslationKeys) {
-          if (!combinedUniqueKeys.has(key)) {
+        let totalFilesScanned = 0
+        let totalDynamicMatchedCount = 0
+        let totalIgnoredCount = 0
+        const allDynamicKeys: Array<{ expression: string; file: string; line: number; callee: string }> = []
+        const dirsScanned: string[] = []
+
+        for (const [layerName, { keys, localeDir }] of keysByLayer) {
+          const layerScanDirs = scanDirs ?? [localeDir.layerRootDir]
+          dirsScanned.push(...layerScanDirs)
+
+          const combinedUniqueKeys = new Set<string>()
+          const combinedBareStrings = new Set<string>()
+          const layerDynamicKeys: Array<{ expression: string; file: string; line: number; callee: string }> = []
+
+          for (const scanDir of layerScanDirs) {
+            const result = await scanSourceFiles(scanDir, excludeDirs, getPatternSet(config.localeFileFormat))
+            totalFilesScanned += result.filesScanned
+            for (const key of result.uniqueKeys) combinedUniqueKeys.add(key)
+            for (const bare of result.bareStringCandidates) combinedBareStrings.add(bare)
+            layerDynamicKeys.push(...result.dynamicKeys)
+          }
+
+          allDynamicKeys.push(...layerDynamicKeys)
+          const dynamicKeyRegexes = buildDynamicKeyRegexes(layerDynamicKeys)
+          const ignorePatterns = resolveOrphanIgnorePatterns(config, layerName)
+          const ignoreRegexes = ignorePatterns ? buildIgnorePatternRegexes(ignorePatterns) : []
+
+          for (const key of keys) {
+            if (combinedUniqueKeys.has(key)) continue
+            if (combinedBareStrings.has(key)) continue
             if (dynamicKeyRegexes.some(re => re.test(key))) {
-              dynamicMatchedCount++
-            } else if (ignoreRegexes.length > 0 && ignoreRegexes.some(re => re.test(key))) {
-              ignoredCount++
-            } else {
-              orphanKeys.push({ key, layer: keyLayer })
+              totalDynamicMatchedCount++
+              continue
             }
+            if (ignoreRegexes.length > 0 && ignoreRegexes.some(re => re.test(key))) {
+              totalIgnoredCount++
+              continue
+            }
+            orphanKeys.push({ key, layer: layerName })
           }
         }
 
-        // Sort orphans by layer, then key
         orphanKeys.sort((a, b) => a.layer.localeCompare(b.layer) || a.key.localeCompare(b.key))
 
-        // Group by layer for readability
         const byLayer: Record<string, string[]> = {}
         for (const { key, layer: keyLayer } of orphanKeys) {
           if (!byLayer[keyLayer]) byLayer[keyLayer] = []
@@ -1890,14 +1870,14 @@ export function createServer(): McpServer {
         const output = {
           orphanKeys: byLayer,
           summary: {
-            totalKeys: allTranslationKeys.size,
+            totalKeys,
             orphanCount: orphanKeys.length,
-            dynamicMatchedCount,
-            ignoredCount,
-            usedCount: allTranslationKeys.size - orphanKeys.length,
+            dynamicMatchedCount: totalDynamicMatchedCount,
+            ignoredCount: totalIgnoredCount,
+            usedCount: totalKeys - orphanKeys.length,
             filesScanned: totalFilesScanned,
             layersChecked: layersToCheck.map(d => d.layer),
-            dirsScanned: dirsToScan,
+            dirsScanned: [...new Set(dirsScanned)],
             locale: localeCode,
           },
           dynamicKeyWarning: allDynamicKeys.length > 0
@@ -1924,12 +1904,7 @@ export function createServer(): McpServer {
         }
 
         return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(output, null, 2),
-            },
-          ],
+          content: [{ type: 'text' as const, text: JSON.stringify(output, null, 2) }],
         }
       } catch (error) {
         return toolErrorResponse('finding orphan keys', error)
@@ -2131,7 +2106,7 @@ export function createServer(): McpServer {
           )
         }
 
-        const keysByLayer = new Map<string, string[]>()
+        const keysByLayer = new Map<string, { keys: string[]; localeDir: LocaleDir }>()
         for (const localeDir of layersToCheck) {
           let data: Record<string, unknown>
           try {
@@ -2140,11 +2115,10 @@ export function createServer(): McpServer {
             continue
           }
           if (Object.keys(data).length === 0) continue
-
-          keysByLayer.set(localeDir.layer, getLeafKeys(data))
+          keysByLayer.set(localeDir.layer, { keys: getLeafKeys(data), localeDir })
         }
 
-        const totalKeys = [...keysByLayer.values()].reduce((sum, keys) => sum + keys.length, 0)
+        const totalKeys = [...keysByLayer.values()].reduce((sum, v) => sum + v.keys.length, 0)
         if (totalKeys === 0) {
           const emptyOutput = { orphanKeys: {}, removed: {}, summary: { totalKeys: 0, orphanCount: 0, message: 'No translation keys found.' } }
           const emptyReportPath = resolveReportFilePath(config, dir, 'cleanup_unused_translations')
@@ -2165,37 +2139,41 @@ export function createServer(): McpServer {
           }
         }
 
-        // Scan source files for key usage.
-        // Use all layer roots (not just those with locale dirs) so layers without
-        // i18n/locales/ still have their source files scanned for key usage.
-        const dirsToScan = scanDirs ?? resolveOrphanScanDirs(config, layer) ?? config.layerRootDirs
-        const combinedUniqueKeys = new Set<string>()
-        let totalFilesScanned = 0
-        const allDynamicKeys: Array<{ expression: string; file: string; line: number }> = []
-
-        for (const scanDir of dirsToScan) {
-          const result = await scanSourceFiles(scanDir, excludeDirs, getPatternSet(config.localeFileFormat))
-          totalFilesScanned += result.filesScanned
-          for (const key of result.uniqueKeys) combinedUniqueKeys.add(key)
-          allDynamicKeys.push(...result.dynamicKeys.map(dk => ({
-            expression: dk.expression,
-            file: toRelativePath(dk.file, dir),
-            line: dk.line,
-          })))
-        }
-
-        // Find orphan keys per layer
-        const dynamicKeyRegexes = buildDynamicKeyRegexes(allDynamicKeys)
-        const ignorePatterns = resolveOrphanIgnorePatterns(config, layer)
-        const ignoreRegexes = ignorePatterns ? buildIgnorePatternRegexes(ignorePatterns) : []
-
+        // Per-layer scanning: scan from each layer's rootDir.
+        // Root layer scans project root (includes all children). App layers scan only their own dir.
         const orphansByLayer: Record<string, string[]> = {}
         let orphanCount = 0
+        let totalFilesScanned = 0
         let dynamicMatchedCount = 0
         let ignoredCount = 0
-        for (const [layerName, keys] of keysByLayer) {
+        const allDynamicKeys: Array<{ expression: string; file: string; line: number }> = []
+
+        for (const [layerName, { keys, localeDir }] of keysByLayer) {
+          const layerScanDirs = scanDirs ?? [localeDir.layerRootDir]
+
+          const combinedUniqueKeys = new Set<string>()
+          const combinedBareStrings = new Set<string>()
+          const layerDynamicKeys: Array<{ expression: string; file: string; line: number }> = []
+
+          for (const scanDir of layerScanDirs) {
+            const result = await scanSourceFiles(scanDir, excludeDirs, getPatternSet(config.localeFileFormat))
+            totalFilesScanned += result.filesScanned
+            for (const key of result.uniqueKeys) combinedUniqueKeys.add(key)
+            for (const bare of result.bareStringCandidates) combinedBareStrings.add(bare)
+            layerDynamicKeys.push(...result.dynamicKeys.map(dk => ({
+              expression: dk.expression,
+              file: toRelativePath(dk.file, dir),
+              line: dk.line,
+            })))
+          }
+
+          allDynamicKeys.push(...layerDynamicKeys)
+          const dynamicKeyRegexes = buildDynamicKeyRegexes(layerDynamicKeys)
+          const ignorePatterns = resolveOrphanIgnorePatterns(config, layerName)
+          const ignoreRegexes = ignorePatterns ? buildIgnorePatternRegexes(ignorePatterns) : []
           const orphans = keys.filter((k) => {
             if (combinedUniqueKeys.has(k)) return false
+            if (combinedBareStrings.has(k)) return false
             if (dynamicKeyRegexes.some(re => re.test(k))) {
               dynamicMatchedCount++
               return false
