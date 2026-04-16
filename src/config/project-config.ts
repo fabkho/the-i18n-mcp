@@ -68,6 +68,18 @@ export async function loadProjectConfig(projectDir: string): Promise<ProjectConf
 
   const config = parsed as Record<string, unknown>
 
+  // Reject unknown top-level keys (matches schema additionalProperties: false)
+  const knownKeys = new Set([
+    '$schema', 'framework', 'context', 'layerRules', 'glossary',
+    'translationPrompt', 'localeNotes', 'examples', 'orphanScan',
+    'reportOutput', 'samplingPreferences',
+  ])
+  for (const key of Object.keys(config)) {
+    if (!knownKeys.has(key)) {
+      throw new ConfigError(`${CONFIG_FILENAME}: unknown property "${key}". Allowed: ${[...knownKeys].filter(k => k !== '$schema').join(', ')}`)
+    }
+  }
+
   if ('framework' in config && typeof config.framework !== 'string') {
     throw new ConfigError(`${CONFIG_FILENAME}: "framework" must be a string`)
   }
@@ -160,6 +172,12 @@ export async function loadProjectConfig(projectDir: string): Promise<ProjectConf
         throw new ConfigError(`${CONFIG_FILENAME}: "orphanScan.${layerName}" must be an object`)
       }
       const layerObj = layerConfig as Record<string, unknown>
+      const knownLayerKeys = new Set(['ignorePatterns'])
+      for (const k of Object.keys(layerObj)) {
+        if (!knownLayerKeys.has(k)) {
+          throw new ConfigError(`${CONFIG_FILENAME}: "orphanScan.${layerName}" has unknown property "${k}". Allowed: ignorePatterns`)
+        }
+      }
       if ('ignorePatterns' in layerObj) {
         if (!Array.isArray(layerObj.ignorePatterns)) {
           throw new ConfigError(`${CONFIG_FILENAME}: "orphanScan.${layerName}.ignorePatterns" must be an array of strings`)

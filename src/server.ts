@@ -1844,11 +1844,9 @@ export function createServer(): McpServer {
           const ignorePatterns = resolveOrphanIgnorePatterns(config, layerName)
           const ignoreRegexes = ignorePatterns ? buildIgnorePatternRegexes(ignorePatterns) : []
 
-          const keySet = new Set(keys)
-
           for (const key of keys) {
             if (combinedUniqueKeys.has(key)) continue
-            if (combinedBareStrings.has(key) && keySet.has(key)) continue
+            if (combinedBareStrings.has(key)) continue
             if (dynamicKeyRegexes.some(re => re.test(key))) {
               totalDynamicMatchedCount++
               continue
@@ -2173,11 +2171,9 @@ export function createServer(): McpServer {
           const dynamicKeyRegexes = buildDynamicKeyRegexes(layerDynamicKeys)
           const ignorePatterns = resolveOrphanIgnorePatterns(config, layerName)
           const ignoreRegexes = ignorePatterns ? buildIgnorePatternRegexes(ignorePatterns) : []
-          const keySet = new Set(keys)
-
           const orphans = keys.filter((k) => {
             if (combinedUniqueKeys.has(k)) return false
-            if (combinedBareStrings.has(k) && keySet.has(k)) return false
+            if (combinedBareStrings.has(k)) return false
             if (dynamicKeyRegexes.some(re => re.test(k))) {
               dynamicMatchedCount++
               return false

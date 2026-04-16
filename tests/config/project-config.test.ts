@@ -182,7 +182,6 @@ describe('loadProjectConfig', () => {
       await writeFile(configPath, JSON.stringify({
         orphanScan: {
           root: {
-            scanDirs: ['apps/shop'],
             ignorePatterns: ['common.datetime.**', 'pages.*.title']
           }
         }
@@ -213,7 +212,7 @@ describe('loadProjectConfig', () => {
     const configPath = resolve(tmpDir, '.i18n-mcp.json')
     try {
       await writeFile(configPath, JSON.stringify({
-        orphanScan: { root: { scanDirs: ['src'] } }
+        orphanScan: { root: {} }
       }), 'utf-8')
       const config = await loadProjectConfig(tmpDir)
       expect(config!.orphanScan!.root.ignorePatterns).toBeUndefined()
@@ -240,7 +239,7 @@ describe('loadProjectConfig', () => {
     const configPath = resolve(tmpDir, '.i18n-mcp.json')
     try {
       await writeFile(configPath, JSON.stringify({
-        orphanScan: { root: { scanDirs: ['src'], ignorePatterns: 'not-an-array' } }
+        orphanScan: { root: { ignorePatterns: 'not-an-array' } }
       }), 'utf-8')
       await expect(loadProjectConfig(tmpDir)).rejects.toThrow('"orphanScan.root.ignorePatterns" must be an array of strings')
     } finally {
@@ -264,7 +263,7 @@ describe('loadProjectConfig', () => {
     const configPath = resolve(tmpDir, '.i18n-mcp.json')
     try {
       await writeFile(configPath, JSON.stringify({
-        orphanScan: { root: { scanDirs: ['src'], ignorePatterns: ['valid.*', 123] } }
+        orphanScan: { root: { ignorePatterns: ['valid.*', 123] } }
       }), 'utf-8')
       await expect(loadProjectConfig(tmpDir)).rejects.toThrow('"orphanScan.root.ignorePatterns[1]" must be a string')
     } finally {
