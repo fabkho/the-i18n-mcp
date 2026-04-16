@@ -160,14 +160,6 @@ export async function loadProjectConfig(projectDir: string): Promise<ProjectConf
         throw new ConfigError(`${CONFIG_FILENAME}: "orphanScan.${layerName}" must be an object`)
       }
       const layerObj = layerConfig as Record<string, unknown>
-      if (!Array.isArray(layerObj.scanDirs)) {
-        throw new ConfigError(`${CONFIG_FILENAME}: "orphanScan.${layerName}.scanDirs" must be an array of strings`)
-      }
-      for (let i = 0; i < layerObj.scanDirs.length; i++) {
-        if (typeof layerObj.scanDirs[i] !== 'string') {
-          throw new ConfigError(`${CONFIG_FILENAME}: "orphanScan.${layerName}.scanDirs[${i}]" must be a string`)
-        }
-      }
       if ('ignorePatterns' in layerObj) {
         if (!Array.isArray(layerObj.ignorePatterns)) {
           throw new ConfigError(`${CONFIG_FILENAME}: "orphanScan.${layerName}.ignorePatterns" must be an array of strings`)
