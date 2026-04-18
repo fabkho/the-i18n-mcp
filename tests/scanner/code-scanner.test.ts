@@ -604,6 +604,43 @@ describe('scanSourceFiles', () => {
     const result = await scanSourceFiles(join(tmpDir, 'does-not-exist'))
     expect(result.filesScanned).toBe(0)
   })
+
+  it('extracts bare dynamic candidates from template literals with dots and interpolation', async () => {
+    await writeFile(join(tmpDir, 'Component.vue'), [
+      'const url = `https://api.example.com/${id}`',
+      'const label = `common.plans.trialPeriod.${interval}`',
+      'const title = `pages.${section}.items.${id}.label`',
+      'const plain = `no-dots-here-${val}`',
+    ].join('\n'))
+
+    const result = await scanSourceFiles(tmpDir)
+    expect(result.bareDynamicCandidates.size).toBe(3)
+    expect(result.bareDynamicCandidates.has('`https://api.example.com/${_}`')).toBe(true)
+    expect(result.bareDynamicCandidates.has('`common.plans.trialPeriod.${_}`')).toBe(true)
+    expect(result.bareDynamicCandidates.has('`pages.${_}.items.${_}.label`')).toBe(true)
+  })
+
+  it('bare dynamic candidates work for multi-line $t calls', async () => {
+    await writeFile(join(tmpDir, 'MultiLine.vue'), [
+      'this.$t(',
+      '  `common.components.calendars.fullCalendar.views.${view}`',
+      ')',
+    ].join('\n'))
+
+    const result = await scanSourceFiles(tmpDir)
+    expect(result.bareDynamicCandidates.has('`common.components.calendars.fullCalendar.views.${_}`')).toBe(true)
+    const regexes = buildDynamicKeyRegexes([...result.bareDynamicCandidates].map(e => ({ expression: e })))
+    expect(regexes.some(re => re.test('common.components.calendars.fullCalendar.views.dayGridWeek'))).toBe(true)
+  })
+
+  it('deduplicates bare dynamic candidates', async () => {
+    await writeFile(join(tmpDir, 'A.vue'), 'const a = `prefix.${x}.suffix`')
+    await writeFile(join(tmpDir, 'B.vue'), 'const b = `prefix.${y}.suffix`')
+
+    const result = await scanSourceFiles(tmpDir)
+    expect(result.bareDynamicCandidates.size).toBe(1)
+    expect(result.bareDynamicCandidates.has('`prefix.${_}.suffix`')).toBe(true)
+  })
 })
 
 describe('toRelativePath', () => {
