@@ -60,6 +60,12 @@ export interface ProjectConfig {
   }>
   /** Default output directory for diagnostic tool reports. Set to true for '.i18n-reports/', or a string for a custom relative path. */
   reportOutput?: string | boolean
+  /** Locale directories for the generic adapter. Each entry is a path string (layer="default") or { path, layer } object. */
+  localeDirs?: Array<string | { path: string; layer: string }>
+  /** Default locale code (required for generic adapter activation). */
+  defaultLocale?: string
+  /** Explicit list of locale codes. If absent, auto-discovered from files on disk. */
+  locales?: string[]
   /** Model preferences for `translate_missing` sampling requests. Overrides the built-in defaults (fast/cheap model bias). */
   samplingPreferences?: {
     /** Ordered model name hints (substring match). First match wins. E.g., ["flash", "haiku"] */
