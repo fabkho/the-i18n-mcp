@@ -172,10 +172,14 @@ export async function loadProjectConfig(projectDir: string): Promise<ProjectConf
         throw new ConfigError(`${CONFIG_FILENAME}: "orphanScan.${layerName}" must be an object`)
       }
       const layerObj = layerConfig as Record<string, unknown>
-      const knownLayerKeys = new Set(['ignorePatterns', 'includeParentLayer'])
+      const knownLayerKeys = new Set(['ignorePatterns'])
+      const deprecatedLayerKeys = new Set(['includeParentLayer'])
       for (const k of Object.keys(layerObj)) {
+        if (deprecatedLayerKeys.has(k)) {
+          continue // silently ignore removed options for backwards compatibility
+        }
         if (!knownLayerKeys.has(k)) {
-          throw new ConfigError(`${CONFIG_FILENAME}: "orphanScan.${layerName}" has unknown property "${k}". Allowed: ignorePatterns, includeParentLayer`)
+          throw new ConfigError(`${CONFIG_FILENAME}: "orphanScan.${layerName}" has unknown property "${k}". Allowed: ignorePatterns`)
         }
       }
       if ('ignorePatterns' in layerObj) {
@@ -187,9 +191,6 @@ export async function loadProjectConfig(projectDir: string): Promise<ProjectConf
             throw new ConfigError(`${CONFIG_FILENAME}: "orphanScan.${layerName}.ignorePatterns[${i}]" must be a string`)
           }
         }
-      }
-      if ('includeParentLayer' in layerObj && typeof layerObj.includeParentLayer !== 'boolean') {
-        throw new ConfigError(`${CONFIG_FILENAME}: "orphanScan.${layerName}.includeParentLayer" must be a boolean`)
       }
     }
   }

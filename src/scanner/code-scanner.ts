@@ -1,9 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { glob } from 'tinyglobby'
+import { DepGraph } from 'dependency-graph'
 import { log } from '../utils/logger.js'
 import type { ScanPatternSet } from './patterns.js'
 import { VUE_NUXT_PATTERNS } from './patterns.js'
+import type { AppInfo } from '../config/types.js'
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -77,7 +79,10 @@ export function extractKeys(content: string, filePath: string, patterns?: ScanPa
       for (const match of line.matchAll(regex)) {
         const callee = match[1]
         const expression = match[2]
-        if (!expression.includes('${') && !expression.includes('{$')) {
+        const hasDollarBrace = expression.includes('${')
+        const hasBraceDollar = expression.includes('{$')
+        const hasBarePHP = !hasDollarBrace && !hasBraceDollar && /\$[a-zA-Z_]/.test(expression)
+        if (!hasDollarBrace && !hasBraceDollar && !hasBarePHP) {
           if (pat.promoteStaticDynamicMatches) {
             const key = expression
             if (!key) continue
@@ -86,9 +91,11 @@ export function extractKeys(content: string, filePath: string, patterns?: ScanPa
           }
           continue
         }
-        const normalized = expression.includes('{$')
+        const normalized = hasBraceDollar
           ? expression.replace(/\{\$[^}]+\}/g, '${_}')
-          : expression
+          : hasBarePHP
+            ? expression.replace(/\$[a-zA-Z_][a-zA-Z0-9_]*(?:->[a-zA-Z_][a-zA-Z0-9_]*)*/g, '${_}')
+            : expression
         dynamicKeys.push({ expression: `\`${normalized}\``, file: filePath, line: lineNumber, callee: match[1] })
       }
     }
@@ -172,6 +179,39 @@ export function buildDynamicKeyRegexes(dynamicKeys: Pick<DynamicKeyUsage, 'expre
   return regexes
 }
 
+function suggestIgnorePattern(expression: string): string | undefined {
+  let expr = expression
+  if (expr.startsWith('`') && expr.endsWith('`')) expr = expr.slice(1, -1)
+  const idx = expr.indexOf('${')
+  if (idx <= 0) return undefined
+  const prefix = expr.slice(0, idx).replace(/\.$/, '')
+  return `${prefix}.**`
+}
+
+function buildUnresolvedWarnings(dynamicKeys: DynamicKeyUsage[]): UnresolvedKeyWarning[] {
+  const seen = new Set<string>()
+  const seenPatterns = new Set<string>()
+  const warnings: UnresolvedKeyWarning[] = []
+  for (const dk of dynamicKeys) {
+    if (!dk.file || !dk.line) continue
+    const pattern = suggestIgnorePattern(dk.expression)
+    if (!pattern) continue
+    if (seenPatterns.has(pattern)) continue
+    seenPatterns.add(pattern)
+    const dedup = `${dk.file}:${dk.line}:${dk.expression}`
+    if (seen.has(dedup)) continue
+    seen.add(dedup)
+    warnings.push({
+      expression: dk.expression,
+      file: dk.file,
+      line: dk.line,
+      callee: dk.callee,
+      suggestedIgnorePattern: pattern,
+    })
+  }
+  return warnings
+}
+
 // ─── Scanning ───────────────────────────────────────────────────
 
 /**
@@ -199,6 +239,8 @@ export async function scanSourceFiles(rootDir: string, excludeDirs?: string[], p
 
   const BARE_DOTTED_STRING = /(['"])((?:[\w-]+\.)+[\w-]+)\1/g
   const BARE_DYNAMIC_TEMPLATE = /`((?:[^`\\]|\\.)*\$\{(?:[^`\\]|\\.)*)`/g
+  /** Matches PHP double-quoted strings containing $var or {$var} interpolation with at least one dot */
+  const BARE_PHP_DYNAMIC = /"((?:[^"\\]|\\.)*(?:\{\$|\$[a-zA-Z_])(?:[^"\\]|\\.)*)"/g
 
   for (const relPath of relativePaths) {
     const filePath = join(rootDir, relPath)
@@ -224,6 +266,16 @@ export async function scanSourceFiles(rootDir: string, excludeDirs?: string[], p
       const expr = match[1]
       if (!expr.includes('.')) continue
       const normalized = expr.replace(/\$\{(?:[^{}]|\{[^}]*\})*\}/g, '${_}')
+      bareDynamicCandidates.add(`\`${normalized}\``)
+    }
+
+    BARE_PHP_DYNAMIC.lastIndex = 0
+    for (const match of content.matchAll(BARE_PHP_DYNAMIC)) {
+      const expr = match[1]
+      if (!expr.includes('.')) continue
+      const normalized = expr
+        .replace(/\{\$[^}]+\}/g, '${_}')
+        .replace(/\$[a-zA-Z_][a-zA-Z0-9_]*(?:->[a-zA-Z_][a-zA-Z0-9_]*)*/g, '${_}')
       bareDynamicCandidates.add(`\`${normalized}\``)
     }
 
@@ -279,40 +331,231 @@ export interface LayerScanPlan {
   excludeDirs: string[]
 }
 
-interface LayerInfo {
-  layer: string
-  layerRootDir: string
-  /** When set, this layer's locale files physically live in another layer's directory */
-  aliasOf?: string
+export async function scanAllApps(
+  apps: AppInfo[],
+  excludeDirs: string[] | undefined,
+  patterns?: ScanPatternSet,
+): Promise<Map<string, ScanResult>> {
+  const cache = new Map<string, ScanResult>()
+  const seen = new Set<string>()
+
+  for (const app of apps) {
+    if (seen.has(app.rootDir)) continue
+    seen.add(app.rootDir)
+    const result = await scanSourceFiles(app.rootDir, excludeDirs ?? [], patterns)
+    cache.set(app.rootDir, result)
+  }
+
+  return cache
 }
 
 export function buildLayerScanPlan(
-  localeDir: LayerInfo,
-  allLocaleDirs: LayerInfo[],
+  layerName: string,
+  apps: AppInfo[],
   userExcludeDirs: string[] | undefined,
-  includeParentLayer = false,
 ): LayerScanPlan[] {
   const baseExclude = userExcludeDirs ?? []
-  const plans: LayerScanPlan[] = [{ dir: localeDir.layerRootDir, excludeDirs: baseExclude }]
+  const graph = new DepGraph<string>()
+  const APP_PREFIX = 'app::'
 
-  const aliasLayers = allLocaleDirs.filter(ld => ld.aliasOf === localeDir.layer)
-  for (const alias of aliasLayers) {
-    plans.push({ dir: alias.layerRootDir, excludeDirs: baseExclude })
+  for (const app of apps) {
+    graph.addNode(APP_PREFIX + app.name, app.rootDir)
+    for (const layer of app.layers) {
+      if (!graph.hasNode(layer)) graph.addNode(layer, '')
+      graph.addDependency(APP_PREFIX + app.name, layer)
+    }
   }
 
-  if (!includeParentLayer) return plans
+  let consumerAppNames: string[]
+  try {
+    consumerAppNames = graph.dependantsOf(layerName)
+      .filter(n => n.startsWith(APP_PREFIX))
+      .map(n => n.slice(APP_PREFIX.length))
+  } catch {
+    consumerAppNames = apps.map(a => a.name)
+  }
 
-  const rootLocaleDir = allLocaleDirs.find(ld =>
-    ld.layer !== localeDir.layer
-    && localeDir.layerRootDir.startsWith(ld.layerRootDir + '/'),
-  )
-  if (!rootLocaleDir) return plans
+  if (consumerAppNames.length === 0) {
+    consumerAppNames = [layerName]
+  }
 
-  const siblingAppDirs = allLocaleDirs
-    .filter(ld => ld.layer !== rootLocaleDir.layer && ld.layer !== localeDir.layer && !aliasLayers.some(a => a.layer === ld.layer))
-    .map(ld => relative(rootLocaleDir.layerRootDir, ld.layerRootDir))
-    .filter(rel => !rel.startsWith('..'))
+  const scannedDirs = new Set<string>()
+  const plans: LayerScanPlan[] = []
 
-  plans.push({ dir: rootLocaleDir.layerRootDir, excludeDirs: [...baseExclude, ...siblingAppDirs] })
+  const layerRootDirs = new Map<string, string>()
+  for (const app of apps) {
+    layerRootDirs.set(app.name, app.rootDir)
+  }
+
+  for (const appName of consumerAppNames) {
+    const app = apps.find(a => a.name === appName)
+    if (!app) continue
+    if (!scannedDirs.has(app.rootDir)) {
+      scannedDirs.add(app.rootDir)
+      plans.push({ dir: app.rootDir, excludeDirs: baseExclude })
+    }
+    for (const depLayer of app.layers) {
+      const depApp = apps.find(a => a.name === depLayer)
+      if (!depApp) continue
+      if (scannedDirs.has(depApp.rootDir)) continue
+      scannedDirs.add(depApp.rootDir)
+      plans.push({ dir: depApp.rootDir, excludeDirs: baseExclude })
+    }
+  }
+
+  if (plans.length === 0) {
+    for (const app of apps) {
+      if (scannedDirs.has(app.rootDir)) continue
+      scannedDirs.add(app.rootDir)
+      plans.push({ dir: app.rootDir, excludeDirs: baseExclude })
+    }
+  }
+
   return plans
+}
+
+export interface OrphanScanOptions {
+  keysByLayer: Map<string, { keys: string[]; localeDir: { layer: string } }>
+  apps: AppInfo[]
+  scanDirs?: string[]
+  excludeDirs?: string[]
+  resolveIgnorePatterns: (layerName: string) => string[] | undefined
+  patterns?: ScanPatternSet
+}
+
+export interface UnresolvedKeyWarning {
+  /** The dynamic expression as detected (e.g., `` `notifications.subscriptions.${_}.message` ``) */
+  expression: string
+  /** Source file path */
+  file: string
+  /** Line number in source file */
+  line: number
+  /** The i18n function called (e.g., `__`, `$t`) */
+  callee: string
+  /** Suggested ignorePattern to suppress false-positive orphans from this expression */
+  suggestedIgnorePattern: string
+}
+
+export interface OrphanScanResult {
+  orphansByLayer: Record<string, string[]>
+  orphanCount: number
+  uncertainByLayer: Record<string, string[]>
+  uncertainCount: number
+  totalFilesScanned: number
+  dynamicMatchedCount: number
+  ignoredCount: number
+  allDynamicKeys: Array<{ expression: string; file: string; line: number; callee: string }>
+  dirsScanned: string[]
+  unresolvedKeyWarnings: UnresolvedKeyWarning[]
+}
+
+export async function findOrphanKeysForConfig(options: OrphanScanOptions): Promise<OrphanScanResult> {
+  const { keysByLayer, apps, scanDirs, excludeDirs, resolveIgnorePatterns, patterns } = options
+
+  let scanCache: Map<string, ScanResult>
+  if (scanDirs) {
+    scanCache = new Map()
+    for (const dir of scanDirs) {
+      scanCache.set(dir, await scanSourceFiles(dir, excludeDirs ?? [], patterns))
+    }
+  } else {
+    scanCache = await scanAllApps(apps, excludeDirs, patterns)
+  }
+
+  const orphansByLayer: Record<string, string[]> = {}
+  let orphanCount = 0
+  const uncertainByLayer: Record<string, string[]> = {}
+  let uncertainCount = 0
+  let totalFilesScanned = 0
+  let dynamicMatchedCount = 0
+  let ignoredCount = 0
+  const allDynamicKeys: Array<{ expression: string; file: string; line: number; callee: string }> = []
+  const dirsScanned: string[] = []
+
+  for (const result of scanCache.values()) {
+    totalFilesScanned += result.filesScanned
+  }
+
+  const unresolvedWarnings: UnresolvedKeyWarning[] = []
+
+  for (const [layerName, { keys }] of keysByLayer) {
+    let relevantResults: ScanResult[]
+    if (scanDirs) {
+      relevantResults = [...scanCache.values()]
+    } else {
+      const plans = buildLayerScanPlan(layerName, apps, excludeDirs)
+      dirsScanned.push(...plans.map(p => p.dir))
+      relevantResults = plans
+        .map(p => scanCache.get(p.dir))
+        .filter((r): r is ScanResult => r !== undefined)
+    }
+
+    const combinedUniqueKeys = new Set<string>()
+    const combinedBareStrings = new Set<string>()
+    const layerDynamicKeys: Array<{ expression: string; file: string; line: number; callee: string }> = []
+
+    for (const result of relevantResults) {
+      for (const key of result.uniqueKeys) combinedUniqueKeys.add(key)
+      for (const bare of result.bareStringCandidates) combinedBareStrings.add(bare)
+      layerDynamicKeys.push(...result.dynamicKeys)
+      for (const bd of result.bareDynamicCandidates) {
+        layerDynamicKeys.push({ expression: bd, file: '', line: 0, callee: '' })
+      }
+    }
+
+    allDynamicKeys.push(...layerDynamicKeys)
+    const dynamicKeyRegexes = buildDynamicKeyRegexes(layerDynamicKeys)
+    const ignorePatterns = resolveIgnorePatterns(layerName)
+    const ignoreRegexes = ignorePatterns ? buildIgnorePatternRegexes(ignorePatterns) : []
+
+    const layerWarnings = buildUnresolvedWarnings(layerDynamicKeys)
+    unresolvedWarnings.push(...layerWarnings)
+    const uncertainRegexes = buildIgnorePatternRegexes(layerWarnings.map(w => w.suggestedIgnorePattern))
+
+    const orphans = keys.filter((k) => {
+      if (combinedUniqueKeys.has(k)) return false
+      if (combinedBareStrings.has(k)) return false
+      if (dynamicKeyRegexes.some(re => re.test(k))) {
+        dynamicMatchedCount++
+        return false
+      }
+      if (ignoreRegexes.length > 0 && ignoreRegexes.some(re => re.test(k))) {
+        ignoredCount++
+        return false
+      }
+      return true
+    }).sort()
+
+    const certain: string[] = []
+    const uncertain: string[] = []
+    for (const k of orphans) {
+      if (uncertainRegexes.length > 0 && uncertainRegexes.some(re => re.test(k))) {
+        uncertain.push(k)
+      } else {
+        certain.push(k)
+      }
+    }
+
+    if (certain.length > 0) {
+      orphansByLayer[layerName] = certain
+      orphanCount += certain.length
+    }
+    if (uncertain.length > 0) {
+      uncertainByLayer[layerName] = uncertain
+      uncertainCount += uncertain.length
+    }
+  }
+
+  return {
+    orphansByLayer,
+    orphanCount,
+    uncertainByLayer,
+    uncertainCount,
+    totalFilesScanned,
+    dynamicMatchedCount,
+    ignoredCount,
+    allDynamicKeys,
+    dirsScanned: [...new Set(dirsScanned)],
+    unresolvedKeyWarnings: unresolvedWarnings,
+  }
 }
