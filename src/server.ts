@@ -1835,12 +1835,14 @@ export function createServer(): McpServer {
 
         const output = {
           orphanKeys: sortedByLayer,
+          uncertainKeys: orphanResult.uncertainCount > 0 ? orphanResult.uncertainByLayer : undefined,
           summary: {
             totalKeys,
             orphanCount: orphanResult.orphanCount,
+            uncertainCount: orphanResult.uncertainCount,
             dynamicMatchedCount: orphanResult.dynamicMatchedCount,
             ignoredCount: orphanResult.ignoredCount,
-            usedCount: totalKeys - orphanResult.orphanCount,
+            usedCount: totalKeys - orphanResult.orphanCount - orphanResult.uncertainCount,
             filesScanned: orphanResult.totalFilesScanned,
             layersChecked: layersToCheck.map(d => d.layer),
             dirsScanned: orphanResult.dirsScanned,
@@ -1854,6 +1856,15 @@ export function createServer(): McpServer {
                 expression: dk.expression,
                 file: toRelativePath(dk.file, dir),
                 line: dk.line,
+              }))
+            : undefined,
+          unresolvedKeyWarnings: orphanResult.unresolvedKeyWarnings.length > 0
+            ? orphanResult.unresolvedKeyWarnings.map(w => ({
+                expression: w.expression,
+                file: toRelativePath(w.file, dir),
+                line: w.line,
+                callee: w.callee,
+                suggestedIgnorePattern: w.suggestedIgnorePattern,
               }))
             : undefined,
         }
@@ -2128,10 +2139,12 @@ export function createServer(): McpServer {
           const messageParts: string[] = ['No orphan keys found.']
           if (dynamicMatchedCount > 0) messageParts.push(`${dynamicMatchedCount} key(s) were excluded by dynamic pattern matching.`)
           if (ignoredCount > 0) messageParts.push(`${ignoredCount} key(s) were excluded by ignore patterns.`)
-          if (dynamicMatchedCount === 0 && ignoredCount === 0) messageParts.push('All translation keys are referenced in code.')
-          const zeroOutput = {
+          if (orphanResult.uncertainCount > 0) messageParts.push(`${orphanResult.uncertainCount} uncertain key(s) were excluded because they overlap with dynamic translation patterns.`)
+          if (dynamicMatchedCount === 0 && ignoredCount === 0 && orphanResult.uncertainCount === 0) messageParts.push('All translation keys are referenced in code.')
+          const zeroOutput: Record<string, unknown> = {
             orphanKeys: {},
-            summary: { totalKeys, orphanCount: 0, dynamicMatchedCount, ignoredCount, filesScanned: totalFilesScanned, message: messageParts.join(' ') },
+            uncertainKeys: orphanResult.uncertainCount > 0 ? orphanResult.uncertainByLayer : undefined,
+            summary: { totalKeys, orphanCount: 0, uncertainCount: orphanResult.uncertainCount, dynamicMatchedCount, ignoredCount, filesScanned: totalFilesScanned, message: messageParts.join(' ') },
           }
           const zeroReportPath = resolveReportFilePath(config, dir, 'cleanup_unused_translations')
           if (zeroReportPath) {
@@ -2155,20 +2168,31 @@ export function createServer(): McpServer {
         if (isDryRun) {
           const output: Record<string, unknown> = {
             orphanKeys: orphansByLayer,
+            uncertainKeys: orphanResult.uncertainCount > 0 ? orphanResult.uncertainByLayer : undefined,
             summary: {
               dryRun: true,
               totalKeys,
               orphanCount,
+              uncertainCount: orphanResult.uncertainCount,
               dynamicMatchedCount,
               ignoredCount,
-              usedCount: totalKeys - orphanCount,
+              usedCount: totalKeys - orphanCount - orphanResult.uncertainCount,
               filesScanned: totalFilesScanned,
-              message: `Found ${orphanCount} orphan key(s). ${dynamicMatchedCount > 0 ? `${dynamicMatchedCount} key(s) matched dynamic patterns and were excluded. ` : ''}${ignoredCount > 0 ? `${ignoredCount} key(s) matched ignore patterns and were excluded. ` : ''}Call again with dryRun: false to remove them.`,
+              message: `Found ${orphanCount} orphan key(s) safe to remove.${orphanResult.uncertainCount > 0 ? ` ${orphanResult.uncertainCount} uncertain key(s) excluded (overlap with dynamic translation patterns).` : ''} ${dynamicMatchedCount > 0 ? `${dynamicMatchedCount} key(s) matched dynamic patterns and were excluded. ` : ''}${ignoredCount > 0 ? `${ignoredCount} key(s) matched ignore patterns and were excluded. ` : ''}Call again with dryRun: false to remove them.`,
             },
           }
           if (allDynamicKeys.length > 0) {
             output.dynamicKeyWarning = `${allDynamicKeys.length} dynamic key reference(s) found. Some "orphan" keys may be used via dynamic keys. Review before removing. Note: string concatenation patterns (e.g. 'prefix.' + var) are not detected — use template literals for full coverage.`
             output.dynamicKeys = allDynamicKeys
+          }
+          if (orphanResult.unresolvedKeyWarnings.length > 0) {
+            output.unresolvedKeyWarnings = orphanResult.unresolvedKeyWarnings.map(w => ({
+              expression: w.expression,
+              file: toRelativePath(w.file, dir),
+              line: w.line,
+              callee: w.callee,
+              suggestedIgnorePattern: w.suggestedIgnorePattern,
+            }))
           }
           const dryRunReportPath = resolveReportFilePath(config, dir, 'cleanup_unused_translations')
           if (dryRunReportPath) {
@@ -2208,12 +2232,14 @@ export function createServer(): McpServer {
           removedByLayer[layerName] = orphans
         }
 
-        const removalOutput = {
+        const removalOutput: Record<string, unknown> = {
           removed: removedByLayer,
+          uncertainKeys: orphanResult.uncertainCount > 0 ? orphanResult.uncertainByLayer : undefined,
           summary: {
             dryRun: false,
             totalKeys,
             removedCount: orphanCount,
+            uncertainCount: orphanResult.uncertainCount,
             dynamicMatchedCount,
             ignoredCount,
             remainingCount: totalKeys - orphanCount,

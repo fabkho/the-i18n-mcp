@@ -157,7 +157,23 @@ describe('Laravel extractKeys', () => {
     it('detects $var interpolation (without braces)', () => {
       const content = `__("messages.$type.title")`
       const { dynamicKeys } = extract(content)
-      expect(dynamicKeys).toHaveLength(0)
+      expect(dynamicKeys).toHaveLength(1)
+      expect(dynamicKeys[0].expression).toBe('`messages.${_}.title`')
+      expect(dynamicKeys[0].callee).toBe('__')
+    })
+
+    it('detects $this->property interpolation', () => {
+      const content = `__("exceptions.$this->code.message")`
+      const { dynamicKeys } = extract(content)
+      expect(dynamicKeys).toHaveLength(1)
+      expect(dynamicKeys[0].expression).toBe('`exceptions.${_}.message`')
+    })
+
+    it('detects multiple bare $var interpolations', () => {
+      const content = `__("connected_persons.$scope.$translationKey")`
+      const { dynamicKeys } = extract(content)
+      expect(dynamicKeys).toHaveLength(1)
+      expect(dynamicKeys[0].expression).toBe('`connected_persons.${_}.${_}`')
     })
   })
 

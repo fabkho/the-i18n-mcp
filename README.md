@@ -164,9 +164,9 @@ Every write tool requires a `layer` parameter (e.g., `"root"`, `"app-admin"`, `"
 | `find_empty_translations` | Finds keys with empty string values. Checks each locale independently |
 | `search_translations` | Searches by key pattern or value substring across layers and locales |
 | `translate_missing` | Auto-translates via MCP sampling (batches of 50 keys by default), or returns context for inline translation when sampling is unavailable. Supports `batchSize` override. Each locale writes to its own file — parallel calls targeting different locales are safe |
-| `find_orphan_keys` | Finds keys not referenced in source code. Scans Vue/TS for Nuxt, Blade/PHP for Laravel |
+| `find_orphan_keys` | Finds keys not referenced in source code. Keys overlapping unresolved dynamic patterns are reported separately as uncertain. Scans Vue/TS for Nuxt, Blade/PHP for Laravel |
 | `scan_code_usage` | Shows where keys are used — file paths, line numbers, call patterns |
-| `cleanup_unused_translations` | Finds orphan keys + removes them in one step. **Dry-run by default** (`dryRun: true`) — pass `dryRun: false` to actually delete |
+| `cleanup_unused_translations` | Finds orphan keys + removes them in one step. **Dry-run by default** (`dryRun: true`) — pass `dryRun: false` to actually delete. Uncertain keys (overlapping dynamic patterns) are excluded from removal and listed separately |
 | `scaffold_locale` | Creates empty locale files for new languages. Copies key structure from default locale with all values set to `""`. Supports JSON (Nuxt) and PHP (Laravel) |
 
 ### Prompts
@@ -309,13 +309,42 @@ Keys matching glob patterns in `orphanScan.ignorePatterns` (from `.i18n-mcp.json
 - `**` matches any number of dot-separated segments
 - `*` matches exactly one segment
 
+### Unresolved key warnings
+
+When the scanner encounters a dynamic translation call it cannot fully resolve (e.g., `__("integrations.${$type}.description")`), it includes an `unresolvedKeyWarnings` array in the output. Each warning shows the source location and suggests an `ignorePatterns` entry:
+
+```json
+{
+  "expression": "`integrations.${_}.description`",
+  "file": "app/Integrations/AbstractManifest.php",
+  "line": 17,
+  "callee": "__",
+  "suggestedIgnorePattern": "integrations.**"
+}
+```
+
+Orphan keys whose prefix matches an unresolved warning are moved to a separate `uncertainKeys` section and **excluded from deletion** by `cleanup_unused_translations`. This prevents false-positive removals. You can review the uncertain keys and ask the agent to remove them explicitly if they are truly unused.
+
 ### Monorepo layer scoping
 
 The scanner automatically determines the correct scan scope for each layer using a consumer graph. For each layer, it identifies all apps that consume it (via Nuxt's `_layers`) and scans their source directories. Shared layers consumed by multiple apps are checked against all consumers' code — no manual configuration needed.
 
+### Battle-tested structures
+
+Orphan detection has been validated against real production codebases:
+
+| Structure | Details | Keys | Orphans | Uncertain | False Positives |
+|-----------|---------|------|---------|-----------|-----------------|
+| **Nuxt monorepo** | 7 apps, 30 locales, nested layers | 7,032 | 1,057 | 0 | 0 (all 124 checked) |
+| **Laravel API** | 31 locales, PHP array files | 2,086 | 98 | 26 | 0 (all 124 checked) |
+
+The consumer graph correctly scopes shared layers — a root layer used by 7 apps is scanned against all 7 app directories. App-specific layers are scanned against their own directory plus any parent layers they depend on.
+
 ## Orphan Detection Limitations
 
-**String concatenation is not detected.** Keys constructed via `t('prefix.' + var + '.suffix')` will be incorrectly reported as orphans. Only template literals are supported.
+### String concatenation
+
+Keys constructed via `t('prefix.' + var + '.suffix')` will be incorrectly reported as orphans. Only template literals and PHP double-quoted string interpolation are supported.
 
 **Mitigation:** Enable ESLint's built-in [`prefer-template`](https://eslint.org/docs/latest/rules/prefer-template) rule to auto-fix concatenation to template literals across your codebase:
 
@@ -354,6 +383,35 @@ module.exports = {
 ```
 
 </details>
+
+### Cross-line variable indirection
+
+The scanner does not trace data flow across variable assignments. If a translation key prefix is stored in a variable and the suffix is appended on a separate line, the children will appear as orphans:
+
+```php
+// Not detected — $key is assigned on one line, used on another
+$key = 'notifications.subscriptions.charged';
+__("{$key}.message");  // notifications.subscriptions.charged.message appears orphaned
+```
+
+**Mitigation:** Add affected key prefixes to `ignorePatterns`.
+
+### Parent key access (Laravel)
+
+`Lang::get('parent.key')` returns the entire subtree as an array, implicitly marking all children as used. The scanner detects `parent.key` as used but does not mark `parent.key.child1`, `parent.key.child2`, etc.
+
+```php
+// Scanner sees 'passport.scopes' as used, but not its children
+$scopes = Lang::get('passport.scopes');
+```
+
+**Mitigation:** Add `"passport.scopes.**"` to `ignorePatterns`.
+
+### Multi-segment dynamic placeholders
+
+Each `${variable}` or `$variable` interpolation matches exactly one dot-separated segment (`[^.]+`). Keys where a single variable spans multiple segments (e.g., `exceptions.$this->code` where `$this->code` = `access_control.duplicate_resource`) will not match correctly.
+
+**Mitigation:** Add the parent namespace to `ignorePatterns` (e.g., `"exceptions.**"`).
 
 ## Model Selection for Translations
 

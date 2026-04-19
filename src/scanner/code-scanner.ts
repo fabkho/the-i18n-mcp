@@ -79,7 +79,10 @@ export function extractKeys(content: string, filePath: string, patterns?: ScanPa
       for (const match of line.matchAll(regex)) {
         const callee = match[1]
         const expression = match[2]
-        if (!expression.includes('${') && !expression.includes('{$')) {
+        const hasDollarBrace = expression.includes('${')
+        const hasBraceDollar = expression.includes('{$')
+        const hasBarePHP = !hasDollarBrace && !hasBraceDollar && /\$[a-zA-Z_]/.test(expression)
+        if (!hasDollarBrace && !hasBraceDollar && !hasBarePHP) {
           if (pat.promoteStaticDynamicMatches) {
             const key = expression
             if (!key) continue
@@ -88,9 +91,11 @@ export function extractKeys(content: string, filePath: string, patterns?: ScanPa
           }
           continue
         }
-        const normalized = expression.includes('{$')
+        const normalized = hasBraceDollar
           ? expression.replace(/\{\$[^}]+\}/g, '${_}')
-          : expression
+          : hasBarePHP
+            ? expression.replace(/\$[a-zA-Z_][a-zA-Z0-9_]*(?:->[a-zA-Z_][a-zA-Z0-9_]*)*/g, '${_}')
+            : expression
         dynamicKeys.push({ expression: `\`${normalized}\``, file: filePath, line: lineNumber, callee: match[1] })
       }
     }
@@ -174,6 +179,39 @@ export function buildDynamicKeyRegexes(dynamicKeys: Pick<DynamicKeyUsage, 'expre
   return regexes
 }
 
+function suggestIgnorePattern(expression: string): string | undefined {
+  let expr = expression
+  if (expr.startsWith('`') && expr.endsWith('`')) expr = expr.slice(1, -1)
+  const idx = expr.indexOf('${')
+  if (idx <= 0) return undefined
+  const prefix = expr.slice(0, idx).replace(/\.$/, '')
+  return `${prefix}.**`
+}
+
+function buildUnresolvedWarnings(dynamicKeys: DynamicKeyUsage[]): UnresolvedKeyWarning[] {
+  const seen = new Set<string>()
+  const seenPatterns = new Set<string>()
+  const warnings: UnresolvedKeyWarning[] = []
+  for (const dk of dynamicKeys) {
+    if (!dk.file || !dk.line) continue
+    const pattern = suggestIgnorePattern(dk.expression)
+    if (!pattern) continue
+    if (seenPatterns.has(pattern)) continue
+    seenPatterns.add(pattern)
+    const dedup = `${dk.file}:${dk.line}:${dk.expression}`
+    if (seen.has(dedup)) continue
+    seen.add(dedup)
+    warnings.push({
+      expression: dk.expression,
+      file: dk.file,
+      line: dk.line,
+      callee: dk.callee,
+      suggestedIgnorePattern: pattern,
+    })
+  }
+  return warnings
+}
+
 // ─── Scanning ───────────────────────────────────────────────────
 
 /**
@@ -201,6 +239,8 @@ export async function scanSourceFiles(rootDir: string, excludeDirs?: string[], p
 
   const BARE_DOTTED_STRING = /(['"])((?:[\w-]+\.)+[\w-]+)\1/g
   const BARE_DYNAMIC_TEMPLATE = /`((?:[^`\\]|\\.)*\$\{(?:[^`\\]|\\.)*)`/g
+  /** Matches PHP double-quoted strings containing $var or {$var} interpolation with at least one dot */
+  const BARE_PHP_DYNAMIC = /"((?:[^"\\]|\\.)*(?:\{\$|\$[a-zA-Z_])(?:[^"\\]|\\.)*)"/g
 
   for (const relPath of relativePaths) {
     const filePath = join(rootDir, relPath)
@@ -226,6 +266,16 @@ export async function scanSourceFiles(rootDir: string, excludeDirs?: string[], p
       const expr = match[1]
       if (!expr.includes('.')) continue
       const normalized = expr.replace(/\$\{(?:[^{}]|\{[^}]*\})*\}/g, '${_}')
+      bareDynamicCandidates.add(`\`${normalized}\``)
+    }
+
+    BARE_PHP_DYNAMIC.lastIndex = 0
+    for (const match of content.matchAll(BARE_PHP_DYNAMIC)) {
+      const expr = match[1]
+      if (!expr.includes('.')) continue
+      const normalized = expr
+        .replace(/\{\$[^}]+\}/g, '${_}')
+        .replace(/\$[a-zA-Z_][a-zA-Z0-9_]*(?:->[a-zA-Z_][a-zA-Z0-9_]*)*/g, '${_}')
       bareDynamicCandidates.add(`\`${normalized}\``)
     }
 
@@ -373,14 +423,30 @@ export interface OrphanScanOptions {
   patterns?: ScanPatternSet
 }
 
+export interface UnresolvedKeyWarning {
+  /** The dynamic expression as detected (e.g., `` `notifications.subscriptions.${_}.message` ``) */
+  expression: string
+  /** Source file path */
+  file: string
+  /** Line number in source file */
+  line: number
+  /** The i18n function called (e.g., `__`, `$t`) */
+  callee: string
+  /** Suggested ignorePattern to suppress false-positive orphans from this expression */
+  suggestedIgnorePattern: string
+}
+
 export interface OrphanScanResult {
   orphansByLayer: Record<string, string[]>
   orphanCount: number
+  uncertainByLayer: Record<string, string[]>
+  uncertainCount: number
   totalFilesScanned: number
   dynamicMatchedCount: number
   ignoredCount: number
   allDynamicKeys: Array<{ expression: string; file: string; line: number; callee: string }>
   dirsScanned: string[]
+  unresolvedKeyWarnings: UnresolvedKeyWarning[]
 }
 
 export async function findOrphanKeysForConfig(options: OrphanScanOptions): Promise<OrphanScanResult> {
@@ -398,6 +464,8 @@ export async function findOrphanKeysForConfig(options: OrphanScanOptions): Promi
 
   const orphansByLayer: Record<string, string[]> = {}
   let orphanCount = 0
+  const uncertainByLayer: Record<string, string[]> = {}
+  let uncertainCount = 0
   let totalFilesScanned = 0
   let dynamicMatchedCount = 0
   let ignoredCount = 0
@@ -407,6 +475,8 @@ export async function findOrphanKeysForConfig(options: OrphanScanOptions): Promi
   for (const result of scanCache.values()) {
     totalFilesScanned += result.filesScanned
   }
+
+  const unresolvedWarnings: UnresolvedKeyWarning[] = []
 
   for (const [layerName, { keys }] of keysByLayer) {
     let relevantResults: ScanResult[]
@@ -438,6 +508,10 @@ export async function findOrphanKeysForConfig(options: OrphanScanOptions): Promi
     const ignorePatterns = resolveIgnorePatterns(layerName)
     const ignoreRegexes = ignorePatterns ? buildIgnorePatternRegexes(ignorePatterns) : []
 
+    const layerWarnings = buildUnresolvedWarnings(layerDynamicKeys)
+    unresolvedWarnings.push(...layerWarnings)
+    const uncertainRegexes = buildIgnorePatternRegexes(layerWarnings.map(w => w.suggestedIgnorePattern))
+
     const orphans = keys.filter((k) => {
       if (combinedUniqueKeys.has(k)) return false
       if (combinedBareStrings.has(k)) return false
@@ -452,19 +526,36 @@ export async function findOrphanKeysForConfig(options: OrphanScanOptions): Promi
       return true
     }).sort()
 
-    if (orphans.length > 0) {
-      orphansByLayer[layerName] = orphans
-      orphanCount += orphans.length
+    const certain: string[] = []
+    const uncertain: string[] = []
+    for (const k of orphans) {
+      if (uncertainRegexes.length > 0 && uncertainRegexes.some(re => re.test(k))) {
+        uncertain.push(k)
+      } else {
+        certain.push(k)
+      }
+    }
+
+    if (certain.length > 0) {
+      orphansByLayer[layerName] = certain
+      orphanCount += certain.length
+    }
+    if (uncertain.length > 0) {
+      uncertainByLayer[layerName] = uncertain
+      uncertainCount += uncertain.length
     }
   }
 
   return {
     orphansByLayer,
     orphanCount,
+    uncertainByLayer,
+    uncertainCount,
     totalFilesScanned,
     dynamicMatchedCount,
     ignoredCount,
     allDynamicKeys,
     dirsScanned: [...new Set(dirsScanned)],
+    unresolvedKeyWarnings: unresolvedWarnings,
   }
 }
