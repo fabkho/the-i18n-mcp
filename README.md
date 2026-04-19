@@ -7,7 +7,7 @@
 
 An MCP server that gives your AI agent full control over your app's translations — without dumping entire locale files into context.
 
-Point it at a Nuxt or Laravel project and your agent can read, write, search, rename, and remove translation keys across all locales and layers. It auto-detects your framework, discovers monorepo structures, and handles the file I/O so the agent never has to parse JSON or PHP arrays manually.
+Point it at any project with JSON or PHP locale files and your agent can read, write, search, rename, and remove translation keys across all locales and layers. It auto-detects your framework (or reads explicit config), discovers monorepo structures, and handles the file I/O so the agent never has to parse JSON or PHP arrays manually.
 
 ### Why this exists
 
@@ -32,8 +32,18 @@ Managing translations with an AI agent sounds simple until you have 30 locales, 
 |-----------|--------------|----------------|---------------|
 | **Nuxt** (v3+) | JSON | `nuxt.config.ts` with `@nuxtjs/i18n` | `@nuxt/kit` (optional peer dep) |
 | **Laravel** (9+) | PHP arrays | `artisan`, `composer.json`, `lang/` directory | Built-in |
+| **Generic** (any JS/PHP project) | JSON or PHP arrays | `localeDirs` + `defaultLocale` in `.i18n-mcp.json` | Built-in |
 
-The server detects your framework automatically based on project structure. You can also force it via `"framework": "laravel"` or `"framework": "nuxt"` in `.i18n-mcp.json`.
+The server detects your framework automatically based on project structure. For projects that aren't Nuxt or Laravel (React, Vue, Next.js, Symfony, WordPress, etc.), add `localeDirs` and `defaultLocale` to your `.i18n-mcp.json` and all 15 tools work immediately:
+
+```json
+{
+  "defaultLocale": "en",
+  "localeDirs": ["src/locales"]
+}
+```
+
+You can also force a specific adapter via `"framework": "generic"`, `"framework": "laravel"`, or `"framework": "nuxt"` in `.i18n-mcp.json`.
 
 ## Quick Start
 
@@ -191,6 +201,26 @@ Every write tool requires a `layer` parameter (e.g., `"root"`, `"app-admin"`, `"
 - No additional dependencies required — works out of the box
 - Scans `.blade.php` and `.php` for `__()`, `trans()`, `trans_choice()`, `Lang::get()`, `@lang()`
 - Uses `:placeholder` syntax (not `{placeholder}`) — reflect this in your `translationPrompt` and `examples`
+
+### Generic (Any Project)
+
+- Works with any JS or PHP project: React, Vue, Next.js, Symfony, WordPress, custom setups
+- Requires `localeDirs` and `defaultLocale` in `.i18n-mcp.json`
+- Auto-discovers locales from filenames on disk (`en.json` → `"en"`, `de/` → `"de"`)
+- Auto-detects file format: flat JSON files (`en.json`), directory-per-locale JSON (`en/common.json`), or directory-per-locale PHP (`en/messages.php`)
+- Optionally restrict locales via an explicit `"locales"` array
+- Supports multiple locale directories with named layers:
+  ```json
+  {
+    "defaultLocale": "en",
+    "localeDirs": [
+      { "path": "packages/ui/locales", "layer": "ui" },
+      { "path": "packages/app/locales", "layer": "app" }
+    ]
+  }
+  ```
+- Single directory entries use `"default"` as the layer name
+- Activates implicitly when config fields are present — no `"framework": "generic"` needed (though it works as an explicit override)
 
 ## Monorepo Support (Nuxt)
 
@@ -392,7 +422,7 @@ For IDE autocompletion, point to the schema:
 
 | Field | Purpose |
 |-------|---------|
-| `framework` | Force framework detection: `"nuxt"` or `"laravel"`. Normally auto-detected from project structure |
+| `framework` | Force framework detection: `"nuxt"`, `"laravel"`, or `"generic"`. Normally auto-detected from project structure |
 | `context` | Free-form project background (business domain, user base, brand voice) |
 | `layerRules` | Rules for which layer a new key belongs to, with natural-language `when` conditions |
 | `glossary` | Term dictionary for consistent translations |
@@ -402,6 +432,9 @@ For IDE autocompletion, point to the schema:
 | `orphanScan` | Per-layer config for orphan detection: `ignorePatterns` (glob patterns for keys to skip), `includeParentLayer` (also scan shared root code for key usage in monorepos). Keys are layer names from `list_locale_dirs`. Each layer automatically scans from its own root directory |
 | `reportOutput` | `true` for default `.i18n-reports/` dir, or a string for a custom path. Diagnostic tools write full output to disk and return only a summary in the MCP response |
 | `samplingPreferences` | Override model preferences for `translate_missing` sampling. See [Model Selection](#model-selection-for-translations) |
+| `localeDirs` | Locale directories for the generic adapter. Array of path strings or `{ path, layer }` objects. Required (with `defaultLocale`) to activate the generic adapter |
+| `defaultLocale` | Default locale code. Required (with `localeDirs`) to activate the generic adapter |
+| `locales` | Explicit list of locale codes to operate on. If absent, auto-discovered from files on disk |
 
 ### Full example
 
@@ -477,7 +510,6 @@ See [`playground/nuxt/.i18n-mcp.json`](playground/nuxt/.i18n-mcp.json) for a wor
 - [ ] Flat JSON support — `flatJson: true` in vue-i18n config
 - [ ] Pluralization support — vue-i18n plural forms and Laravel `trans_choice`
 - [ ] Confidence scoring for orphan keys — flag low-confidence orphans that share a prefix with dynamic patterns ([#109](https://github.com/fabkho/the-i18n-mcp/issues/109))
-- [ ] Plain vue-i18n support (without Nuxt)
 
 ## Development
 

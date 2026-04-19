@@ -72,7 +72,7 @@ export async function loadProjectConfig(projectDir: string): Promise<ProjectConf
   const knownKeys = new Set([
     '$schema', 'framework', 'context', 'layerRules', 'glossary',
     'translationPrompt', 'localeNotes', 'examples', 'orphanScan',
-    'reportOutput', 'samplingPreferences',
+    'reportOutput', 'samplingPreferences', 'localeDirs', 'defaultLocale', 'locales',
   ])
   for (const key of Object.keys(config)) {
     if (!knownKeys.has(key)) {
@@ -194,6 +194,48 @@ export async function loadProjectConfig(projectDir: string): Promise<ProjectConf
     }
   }
 
+  // Validate localeDirs
+  if ('localeDirs' in config) {
+    if (!Array.isArray(config.localeDirs)) {
+      throw new ConfigError(`${CONFIG_FILENAME}: "localeDirs" must be an array`)
+    }
+    for (let i = 0; i < config.localeDirs.length; i++) {
+      const entry = config.localeDirs[i]
+      if (typeof entry === 'string') {
+        if (entry.trim() === '') {
+          throw new ConfigError(`${CONFIG_FILENAME}: "localeDirs[${i}]" must be a non-empty string`)
+        }
+      } else if (typeof entry === 'object' && entry !== null && !Array.isArray(entry)) {
+        const obj = entry as Record<string, unknown>
+        if (typeof obj.path !== 'string' || obj.path.trim() === '') {
+          throw new ConfigError(`${CONFIG_FILENAME}: "localeDirs[${i}].path" must be a non-empty string`)
+        }
+        if (typeof obj.layer !== 'string' || obj.layer.trim() === '') {
+          throw new ConfigError(`${CONFIG_FILENAME}: "localeDirs[${i}].layer" must be a non-empty string`)
+        }
+      } else {
+        throw new ConfigError(`${CONFIG_FILENAME}: "localeDirs[${i}]" must be a string or { path, layer } object`)
+      }
+    }
+  }
+
+  // Validate defaultLocale
+  if ('defaultLocale' in config && typeof config.defaultLocale !== 'string') {
+    throw new ConfigError(`${CONFIG_FILENAME}: "defaultLocale" must be a string`)
+  }
+
+  // Validate locales
+  if ('locales' in config) {
+    if (!Array.isArray(config.locales)) {
+      throw new ConfigError(`${CONFIG_FILENAME}: "locales" must be an array of strings`)
+    }
+    for (let i = 0; i < config.locales.length; i++) {
+      if (typeof config.locales[i] !== 'string') {
+        throw new ConfigError(`${CONFIG_FILENAME}: "locales[${i}]" must be a string`)
+      }
+    }
+  }
+
   if ('reportOutput' in config) {
     if (config.reportOutput !== true) {
       if (typeof config.reportOutput !== 'string' || config.reportOutput.trim() === '') {
@@ -214,5 +256,8 @@ export async function loadProjectConfig(projectDir: string): Promise<ProjectConf
     examples: config.examples as Array<Record<string, string>> | undefined,
     orphanScan: config.orphanScan as ProjectConfig['orphanScan'],
     reportOutput: config.reportOutput as string | boolean | undefined,
+    localeDirs: config.localeDirs as ProjectConfig['localeDirs'],
+    defaultLocale: config.defaultLocale as string | undefined,
+    locales: config.locales as string[] | undefined,
   }
 }
