@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.0](https://github.com/fabkho/the-i18n-mcp/compare/v2.3.0...v2.4.0) (2026-04-19)
+
+
+### Features
+
+* add GenericAdapter for any JS/PHP project via explicit locale config ([#115](https://github.com/fabkho/the-i18n-mcp/issues/115)) ([0dd4950](https://github.com/fabkho/the-i18n-mcp/commit/0dd4950dbc8cd685ebbcf0be195fe3a66dd94fef)), closes [#104](https://github.com/fabkho/the-i18n-mcp/issues/104)
+* redesign orphan scan scope using consumer graph ([#117](https://github.com/fabkho/the-i18n-mcp/issues/117)) ([fd996fa](https://github.com/fabkho/the-i18n-mcp/commit/fd996fa88b0cc72ae165e59f015a1f9093e72ccb))
+
 ## [2.3.0](https://github.com/fabkho/the-i18n-mcp/compare/v2.2.0...v2.3.0) (2026-04-18)
 
 
