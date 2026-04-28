@@ -50,6 +50,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.23.0",
+    "citty": "^0.2.2",
+    "consola": "^3.4.2",
     "dependency-graph": "^1.0.0",
     "php-array-reader": "^2.1.3",
     "tinyglobby": "^0.2.15",

@@ -1,30 +1,16 @@
 #!/usr/bin/env node
 
 /**
- * Smart entrypoint: routes to CLI or MCP server mode.
+ * Smart entrypoint: routes to CLI (citty) or MCP server mode.
  *
  * - MCP mode: when no subcommand is given (backward compat for MCP clients)
- *   or when `serve` is explicitly passed
- * - CLI mode: when any other subcommand argument is passed (e.g., `the-i18n-mcp detect`)
+ * - CLI mode: when any argument is present (citty handles all commands including `serve`)
  */
 
 const args = process.argv.slice(2)
-const command = args.find(a => !a.startsWith('-'))
 
-// Known CLI commands (anything other than 'serve' or no command)
-const CLI_COMMANDS = new Set([
-  'detect', 'list-dirs', 'get', 'add', 'update', 'missing', 'empty',
-  'search', 'remove', 'rename', 'translate', 'orphans', 'scan',
-  'cleanup', 'scaffold',
-])
-
-const wantsHelp = args.includes('--help') || args.includes('-h')
-
-if (command && CLI_COMMANDS.has(command)) {
-  // CLI mode
-  import('./cli.js').then(m => m.runCli())
-} else if (command === 'serve' || (!command && !wantsHelp)) {
-  // MCP server mode — default when no command (backward compat) or explicit `serve`
+if (args.length === 0) {
+  // No arguments at all → MCP server mode (backward compat)
   import('./server.js').then(async ({ createServer }) => {
     const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js')
     const { log } = await import('./utils/logger.js')
@@ -39,6 +25,6 @@ if (command && CLI_COMMANDS.has(command)) {
     process.exit(1)
   })
 } else {
-  // --help with no command, or unknown command → CLI help
+  // Any arguments → CLI mode (citty handles subcommands, --help, errors)
   import('./cli.js').then(m => m.runCli())
 }
