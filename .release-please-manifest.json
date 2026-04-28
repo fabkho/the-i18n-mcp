@@ -1,4 +1,4 @@
 {
-  "packages/cli": "1.0.0",
-  "packages/mcp": "3.0.0"
+  "packages/cli": "0.0.0",
+  "packages/mcp": "2.3.0"
 }
