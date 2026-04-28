@@ -36,6 +36,8 @@ import type {
   ProgressFn,
   SamplingPreferences,
   TranslateMissingLocaleResult,
+  AddTranslationsResult,
+  UpdateTranslationsResult,
 } from './types.js'
 
 // ─── Constants ──────────────────────────────────────────────────
@@ -505,7 +507,7 @@ export async function addTranslations(opts: {
   translations: Record<string, Record<string, string>>
   dryRun?: boolean
   projectDir?: string
-}): Promise<Record<string, unknown>> {
+}): Promise<AddTranslationsResult> {
   const { layer, translations } = opts
   const dir = opts.projectDir ?? process.cwd()
   const config = await detectI18nConfig(dir)
@@ -516,9 +518,10 @@ export async function addTranslations(opts: {
   )
 
   if (isDryRun) {
-    const result: Record<string, unknown> = {
+    const result: AddTranslationsResult = {
       dryRun: true,
       wouldAdd: preview,
+      skipped,
       summary: {
         keysToAdd: applied.length,
         keysSkipped: skipped.length,
@@ -534,7 +537,7 @@ export async function addTranslations(opts: {
     return result
   }
 
-  const summary: Record<string, unknown> = {
+  const summary: AddTranslationsResult = {
     added: applied,
     skipped,
     filesWritten,
@@ -554,7 +557,7 @@ export async function updateTranslations(opts: {
   translations: Record<string, Record<string, string>>
   dryRun?: boolean
   projectDir?: string
-}): Promise<Record<string, unknown>> {
+}): Promise<UpdateTranslationsResult> {
   const { layer, translations } = opts
   const dir = opts.projectDir ?? process.cwd()
   const config = await detectI18nConfig(dir)
@@ -565,9 +568,10 @@ export async function updateTranslations(opts: {
   )
 
   if (isDryRun) {
-    const result: Record<string, unknown> = {
+    const result: UpdateTranslationsResult = {
       dryRun: true,
       wouldUpdate: preview,
+      skipped,
       summary: {
         keysToUpdate: applied.length,
         keysSkipped: skipped.length,
@@ -1047,6 +1051,8 @@ export async function translateMissing(opts: {
   projectDir?: string
   samplingFn?: SamplingFn
   progressFn?: ProgressFn
+  /** Called once after the pre-scan with the computed total number of progress steps. */
+  onProgressTotal?: (total: number) => void
 }): Promise<Record<string, unknown>> {
   const { layer } = opts
   const dir = opts.projectDir ?? process.cwd()
@@ -1090,6 +1096,26 @@ export async function translateMissing(opts: {
   const samplingSupported = !!opts.samplingFn
   const reportProgress = opts.progressFn ?? (async () => {})
   let samplingModelLogged = false
+
+  // Pre-scan: count missing keys per target to compute progressTotal
+  if (opts.onProgressTotal) {
+    const preScanCounts: number[] = []
+    for (const target of targets) {
+      let scanData: Record<string, unknown> = {}
+      try {
+        scanData = await readLocaleData(config, layer, target)
+      } catch {}
+      const countMissing = (k: string): boolean => {
+        const v = getNestedValue(scanData, k)
+        return v === undefined || v === '' || v === null
+      }
+      const count = opts.keys
+        ? opts.keys.filter(k => countMissing(k) && allRefKeys.includes(k)).length
+        : allRefKeys.filter(k => countMissing(k)).length
+      preScanCounts.push(count)
+    }
+    opts.onProgressTotal(computeProgressTotal(preScanCounts, maxBatch))
+  }
 
   const results: Record<string, TranslateMissingLocaleResult> = {}
   const fallbackContexts: Record<string, Record<string, unknown>> = {}
@@ -1161,7 +1187,8 @@ export async function translateMissing(opts: {
 
         for (let attempt = 0; attempt < 2; attempt++) {
           if (attempt > 0) {
-            await new Promise(r => setTimeout(r, 2000))
+            const delayMs = 2000 * Math.pow(2, attempt - 1)
+            await new Promise(r => setTimeout(r, delayMs))
           }
           try {
             const samplingResult = await opts.samplingFn({
@@ -1323,7 +1350,7 @@ export async function findOrphanKeysOp(opts: {
 
   const totalKeys = [...keysByLayer.values()].reduce((sum, v) => sum + v.keys.length, 0)
   if (totalKeys === 0) {
-    const emptyOutput = { orphanKeys: [], summary: { totalKeys: 0, orphanCount: 0, filesScanned: 0, message: 'No translation keys found in locale files.' } }
+    const emptyOutput = { orphanKeys: {} as Record<string, string[]>, summary: { totalKeys: 0, orphanCount: 0, filesScanned: 0, message: 'No translation keys found in locale files.' } }
     const reportPath = resolveReportFilePath(config, dir, 'find_orphan_keys')
     if (reportPath) {
       await writeReportFile(reportPath, emptyOutput, {

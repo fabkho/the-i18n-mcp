@@ -204,7 +204,7 @@ export interface UnresolvedKeyWarningRef {
 }
 
 export interface FindOrphanKeysResult {
-  orphanKeys: Record<string, string[]> | never[]
+  orphanKeys: Record<string, string[]>
   uncertainKeys?: Record<string, string[]>
   summary: {
     totalKeys: number

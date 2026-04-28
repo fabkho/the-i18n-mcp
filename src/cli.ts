@@ -47,7 +47,7 @@ function parseArgs(argv: string[]): ParsedArgs {
         flags[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1)
       } else {
         const next = args[i + 1]
-        if (next !== undefined && !next.startsWith('-')) {
+        if (next !== undefined && (!next.startsWith('-') || /^-\d/.test(next))) {
           flags[arg.slice(2)] = next
           i++
         } else {
@@ -56,7 +56,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
     } else if (arg.startsWith('-') && arg.length === 2) {
       const next = args[i + 1]
-      if (next !== undefined && !next.startsWith('-')) {
+      if (next !== undefined && (!next.startsWith('-') || /^-\d/.test(next))) {
         flags[arg.slice(1)] = next
         i++
       } else {
@@ -368,7 +368,12 @@ const commands: Record<string, CommandHandler> = {
   add: async (flags) => {
     const layer = requireFlag(flags, 'layer')
     const translationsStr = requireFlag(flags, 'translations')
-    const translations = JSON.parse(translationsStr) as Record<string, Record<string, string>>
+    let translations: Record<string, Record<string, string>>
+    try {
+      translations = JSON.parse(translationsStr) as Record<string, Record<string, string>>
+    } catch (err) {
+      throw new Error(`Invalid JSON in --translations: ${err instanceof SyntaxError ? err.message : String(err)}`)
+    }
     return addTranslations({
       layer,
       translations,
@@ -380,7 +385,12 @@ const commands: Record<string, CommandHandler> = {
   update: async (flags) => {
     const layer = requireFlag(flags, 'layer')
     const translationsStr = requireFlag(flags, 'translations')
-    const translations = JSON.parse(translationsStr) as Record<string, Record<string, string>>
+    let translations: Record<string, Record<string, string>>
+    try {
+      translations = JSON.parse(translationsStr) as Record<string, Record<string, string>>
+    } catch (err) {
+      throw new Error(`Invalid JSON in --translations: ${err instanceof SyntaxError ? err.message : String(err)}`)
+    }
     return updateTranslations({
       layer,
       translations,
@@ -474,10 +484,14 @@ const commands: Record<string, CommandHandler> = {
   },
 
   cleanup: async (flags) => {
+    // Preserve core default (dryRun=true) when --dry-run is not explicitly passed
+    const dryRun = Object.prototype.hasOwnProperty.call(flags, 'dry-run')
+      ? flagBool(flags, 'dry-run')
+      : undefined
     return cleanupUnusedTranslations({
       layer: flag(flags, 'layer'),
       locale: flag(flags, 'locale'),
-      dryRun: flagBool(flags, 'dry-run'),
+      dryRun,
       projectDir: projectDir(flags),
     })
   },

@@ -487,8 +487,7 @@ export function createServer(): McpServer {
         // Build progressFn from MCP progress notifications
         const progressToken = extra._meta?.progressToken
         let progressCurrent = 0
-        // We don't know progressTotal upfront; the core operation calls progressFn
-        // and we track count here. We could pre-compute but we let the core handle batching.
+        let progressTotal: number | undefined
         const progressFn: ProgressFn = async (message: string) => {
           if (!progressToken) return
           progressCurrent++
@@ -497,7 +496,7 @@ export function createServer(): McpServer {
             params: {
               progressToken,
               progress: progressCurrent,
-              total: undefined, // set below after pre-scan
+              total: progressTotal,
               message,
             },
           })
@@ -550,6 +549,7 @@ export function createServer(): McpServer {
           projectDir,
           samplingFn,
           progressFn,
+          onProgressTotal: (total) => { progressTotal = total },
         })
 
         return jsonContent(result)
