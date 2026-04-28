@@ -16,5 +16,4 @@ export const commands = {
   'scan': () => import('./scan.js').then(m => m.default as CommandDef),
   'cleanup': () => import('./cleanup.js').then(m => m.default as CommandDef),
   'scaffold': () => import('./scaffold.js').then(m => m.default as CommandDef),
-  'serve': () => import('./serve.js').then(m => m.default as CommandDef),
 } as const

@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { detectI18nConfig, clearConfigCache, discoverNuxtApps } from '../../src/config/detector.js'
 import type { I18nConfig } from '../../src/config/types.js'
 
-const projectRootDir = resolve(import.meta.dirname, '../..')
+const projectRootDir = resolve(import.meta.dirname, '../../../..')
 const playgroundDir = resolve(projectRootDir, 'playground/nuxt')
 const appAdminDir = resolve(playgroundDir, 'app-admin')
 

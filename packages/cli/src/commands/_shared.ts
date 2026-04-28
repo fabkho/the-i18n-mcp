@@ -38,7 +38,6 @@ export function parseJsonArg<T = Record<string, Record<string, string>>>(
     return JSON.parse(value) as T
   } catch (err) {
     const detail = err instanceof SyntaxError ? err.message : String(err)
-    consola.error(`Invalid JSON in --${argName}: ${detail}`)
-    process.exit(1)
+    throw new Error(`Invalid JSON in --${argName}: ${detail}`)
   }
 }

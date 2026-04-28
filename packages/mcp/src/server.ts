@@ -5,11 +5,11 @@ import { z } from 'zod'
 const require = createRequire(import.meta.url)
 const { version } = require('../package.json') as { version: string }
 
-import { detectI18nConfig, getCachedConfig } from './config/detector.js'
-import { readLocaleData } from './io/locale-data.js'
-import { ToolError } from './utils/errors.js'
-
 import {
+  detectI18nConfig,
+  getCachedConfig,
+  readLocaleData,
+  ToolError,
   detectConfig,
   listLocaleDirs,
   getTranslations,
@@ -26,21 +26,9 @@ import {
   cleanupUnusedTranslations,
   scaffoldLocaleFiles,
   findLocaleImpl,
-} from './core/operations.js'
+} from 'the-i18n-cli'
 
-import type { SamplingFn, ProgressFn } from './core/types.js'
-
-// Re-export symbols that tests and other modules import from server.ts
-export {
-  computeProgressTotal,
-  computeMaxTokens,
-  resolveSamplingPreferences,
-  validateReportPath,
-  buildTranslationSystemPrompt,
-  buildTranslationUserMessage,
-  extractJsonFromResponse,
-  DEFAULT_SAMPLING_PREFERENCES,
-} from './core/operations.js'
+import type { SamplingFn, ProgressFn } from 'the-i18n-cli'
 
 // ─── Shared helpers ───────────────────────────────────────────────
 
@@ -484,7 +472,11 @@ export function createServer(): McpServer {
         const clientCapabilities = server.server.getClientCapabilities()
         const samplingSupported = !!clientCapabilities?.sampling
 
-        // Build progressFn from MCP progress notifications
+        // Build progressFn from MCP progress notifications.
+        // progressTotal is set by the onProgressTotal callback below, which runs
+        // during the pre-scan phase of translateMissing — before any progress
+        // notifications are sent. This temporal coupling is safe because the core
+        // operation always pre-scans before emitting progress.
         const progressToken = extra._meta?.progressToken
         let progressCurrent = 0
         let progressTotal: number | undefined

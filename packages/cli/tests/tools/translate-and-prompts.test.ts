@@ -13,7 +13,7 @@ import {
 } from '../../src/io/key-operations.js'
 import { loadProjectConfig } from '../../src/config/project-config.js'
 import { registerDetectorMock, playgroundDir, appAdminDir } from '../fixtures/mock-detector.js'
-import { computeProgressTotal, resolveSamplingPreferences, DEFAULT_SAMPLING_PREFERENCES, buildTranslationSystemPrompt, buildTranslationUserMessage, extractJsonFromResponse, computeMaxTokens } from '../../src/server.js'
+import { computeProgressTotal, resolveSamplingPreferences, DEFAULT_SAMPLING_PREFERENCES, buildTranslationSystemPrompt, buildTranslationUserMessage, extractJsonFromResponse, computeMaxTokens } from '../../src/core/operations.js'
 
 // Register the shared detector mock (vi.mock is hoisted by Vitest)
 registerDetectorMock()

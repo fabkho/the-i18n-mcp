@@ -11,5 +11,6 @@ dist/
 coverage/
 tmp/
 .tmp-*
+.pi/
 battle-*.ts
 tests/battle-*.test.ts

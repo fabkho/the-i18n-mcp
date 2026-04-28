@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import { defineCommand, runCommand } from 'citty'
+import { defineCommand, runCommand, runMain } from 'citty'
 import { consola } from 'consola'
 import { commands } from './commands/index.js'
 
@@ -8,7 +8,7 @@ const { version, description } = require('../package.json') as { version: string
 
 const main = defineCommand({
   meta: {
-    name: 'the-i18n-mcp',
+    name: 'the-i18n-cli',
     version,
     description,
   },
@@ -18,20 +18,15 @@ const main = defineCommand({
 export async function runCli(): Promise<void> {
   const rawArgs = process.argv.slice(2)
 
+  // Let citty handle --help and --version natively (pretty-printed usage)
+  if (rawArgs.includes('--help') || rawArgs.includes('-h')
+    || rawArgs.includes('--version') || rawArgs.includes('-v')) {
+    await runMain(main)
+    return
+  }
+
+  // For normal execution, use runCommand so we control error output
   try {
-    // Check for --help / --version before running
-    if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
-      // Let citty handle help display
-      const { runMain } = await import('citty')
-      await runMain(main)
-      return
-    }
-
-    if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
-      process.stdout.write(version + '\n')
-      return
-    }
-
     await runCommand(main, { rawArgs })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)

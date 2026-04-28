@@ -29,9 +29,16 @@ export default defineCommand({
     },
   },
   async run({ args }) {
+    const validSearchIn = ['keys', 'values', 'both'] as const
+    const searchIn = validSearchIn.includes(args.in as typeof validSearchIn[number])
+      ? (args.in as 'keys' | 'values' | 'both')
+      : undefined
+    if (args.in && !searchIn) {
+      throw new Error(`Invalid --in value: "${args.in}". Must be one of: keys, values, both`)
+    }
     const result = await searchTranslations({
       query: args.query,
-      searchIn: args.in as 'keys' | 'values' | 'both' | undefined,
+      searchIn,
       layer: args.layer,
       locale: args.locale,
       projectDir: args.projectDir,

@@ -38,6 +38,7 @@ import type {
   TranslateMissingLocaleResult,
   AddTranslationsResult,
   UpdateTranslationsResult,
+  ScaffoldLocaleResult,
 } from './types.js'
 
 // ─── Constants ──────────────────────────────────────────────────
@@ -142,7 +143,7 @@ export function findLocaleImpl(config: I18nConfig, localeRef: string) {
   )
 }
 
-export function findLocaleOrThrow(config: I18nConfig, localeRef: string, _paramName = 'locale'): LocaleDefinition {
+export function findLocaleOrThrow(config: I18nConfig, localeRef: string): LocaleDefinition {
   const locale = findLocaleImpl(config, localeRef)
   if (!locale) {
     throw new ToolError(
@@ -600,7 +601,7 @@ export async function getMissingTranslations(opts: {
   targetLocales?: string[]
   locales?: string[]
   projectDir?: string
-}): Promise<Record<string, unknown>> {
+}): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { layer } = opts
   const dir = opts.projectDir ?? process.cwd()
   const config = await detectI18nConfig(dir)
@@ -705,7 +706,7 @@ export async function findEmptyTranslations(opts: {
   layer?: string
   locale?: string
   projectDir?: string
-}): Promise<Record<string, unknown>> {
+}): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { layer, locale } = opts
   const dir = opts.projectDir ?? process.cwd()
   const config = await detectI18nConfig(dir)
@@ -869,7 +870,7 @@ export async function removeTranslations(opts: {
   keys: string[]
   dryRun?: boolean
   projectDir?: string
-}): Promise<Record<string, unknown>> {
+}): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { layer, keys } = opts
   const dir = opts.projectDir ?? process.cwd()
   const config = await detectI18nConfig(dir)
@@ -944,7 +945,7 @@ export async function renameTranslationKey(opts: {
   newKey: string
   dryRun?: boolean
   projectDir?: string
-}): Promise<Record<string, unknown>> {
+}): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { layer, oldKey, newKey } = opts
   const dir = opts.projectDir ?? process.cwd()
   const config = await detectI18nConfig(dir)
@@ -1053,7 +1054,7 @@ export async function translateMissing(opts: {
   progressFn?: ProgressFn
   /** Called once after the pre-scan with the computed total number of progress steps. */
   onProgressTotal?: (total: number) => void
-}): Promise<Record<string, unknown>> {
+}): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { layer } = opts
   const dir = opts.projectDir ?? process.cwd()
   const config = await detectI18nConfig(dir)
@@ -1097,6 +1098,20 @@ export async function translateMissing(opts: {
   const reportProgress = opts.progressFn ?? (async () => {})
   let samplingModelLogged = false
 
+  /** Check whether a key is missing in a given locale data object */
+  function isKeyMissingIn(data: Record<string, unknown>, k: string): boolean {
+    const v = getNestedValue(data, k)
+    return v === undefined || v === '' || v === null
+  }
+
+  /** Count missing keys for a target locale's data */
+  function countMissingKeys(data: Record<string, unknown>): number {
+    const isMissing = (k: string) => isKeyMissingIn(data, k)
+    return opts.keys
+      ? opts.keys.filter(k => isMissing(k) && allRefKeys.includes(k)).length
+      : allRefKeys.filter(k => isMissing(k)).length
+  }
+
   // Pre-scan: count missing keys per target to compute progressTotal
   if (opts.onProgressTotal) {
     const preScanCounts: number[] = []
@@ -1105,14 +1120,7 @@ export async function translateMissing(opts: {
       try {
         scanData = await readLocaleData(config, layer, target)
       } catch {}
-      const countMissing = (k: string): boolean => {
-        const v = getNestedValue(scanData, k)
-        return v === undefined || v === '' || v === null
-      }
-      const count = opts.keys
-        ? opts.keys.filter(k => countMissing(k) && allRefKeys.includes(k)).length
-        : allRefKeys.filter(k => countMissing(k)).length
-      preScanCounts.push(count)
+      preScanCounts.push(countMissingKeys(scanData))
     }
     opts.onProgressTotal(computeProgressTotal(preScanCounts, maxBatch))
   }
@@ -1127,16 +1135,11 @@ export async function translateMissing(opts: {
       targetData = await readLocaleData(config, layer, target)
     } catch {}
 
-    const isKeyMissing = (k: string): boolean => {
-      const v = getNestedValue(targetData, k)
-      return v === undefined || v === '' || v === null
-    }
-
     let missingKeys: string[]
     if (opts.keys) {
-      missingKeys = opts.keys.filter(k => isKeyMissing(k) && allRefKeys.includes(k))
+      missingKeys = opts.keys.filter(k => isKeyMissingIn(targetData, k) && allRefKeys.includes(k))
     } else {
-      missingKeys = allRefKeys.filter(k => isKeyMissing(k))
+      missingKeys = allRefKeys.filter(k => isKeyMissingIn(targetData, k))
     }
 
     if (missingKeys.length === 0) {
@@ -1187,7 +1190,7 @@ export async function translateMissing(opts: {
 
         for (let attempt = 0; attempt < 2; attempt++) {
           if (attempt > 0) {
-            const delayMs = 2000 * Math.pow(2, attempt - 1)
+            const delayMs = 2000 * 2 ** attempt
             await new Promise(r => setTimeout(r, delayMs))
           }
           try {
@@ -1304,7 +1307,7 @@ export async function findOrphanKeysOp(opts: {
   scanDirs?: string[]
   excludeDirs?: string[]
   projectDir?: string
-}): Promise<Record<string, unknown>> {
+}): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { layer, locale, scanDirs, excludeDirs } = opts
   const dir = opts.projectDir ?? process.cwd()
   const config = await detectI18nConfig(dir)
@@ -1439,7 +1442,7 @@ export async function scanCodeUsageOp(opts: {
   scanDirs?: string[]
   excludeDirs?: string[]
   projectDir?: string
-}): Promise<Record<string, unknown>> {
+}): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { keys, scanDirs, excludeDirs } = opts
   const dir = opts.projectDir ?? process.cwd()
   const config = await detectI18nConfig(dir)
@@ -1524,7 +1527,7 @@ export async function cleanupUnusedTranslations(opts: {
   excludeDirs?: string[]
   dryRun?: boolean
   projectDir?: string
-}): Promise<Record<string, unknown>> {
+}): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { layer, locale, scanDirs, excludeDirs } = opts
   const dir = opts.projectDir ?? process.cwd()
   const config = await detectI18nConfig(dir)
@@ -1725,7 +1728,7 @@ export async function scaffoldLocaleFiles(opts: {
   layer?: string
   dryRun?: boolean
   projectDir?: string
-}): Promise<Record<string, unknown>> {
+}): Promise<ScaffoldLocaleResult> {
   const dir = opts.projectDir ?? process.cwd()
   const config = await detectI18nConfig(dir)
 

@@ -5,9 +5,9 @@
 [![License][license-src]][license-href]
 [![CI][ci-src]][ci-href]
 
-An MCP server that gives your AI agent full control over your app's translations — without dumping entire locale files into context.
+An MCP server **and CLI** for managing i18n translation files — read, write, search, rename, and remove translation keys across all locales and layers without dumping entire files into context.
 
-Point it at any project with JSON or PHP locale files and your agent can read, write, search, rename, and remove translation keys across all locales and layers. It auto-detects your framework (or reads explicit config), discovers monorepo structures, and handles the file I/O so the agent never has to parse JSON or PHP arrays manually.
+Point it at any project with JSON or PHP locale files and it auto-detects your framework (or reads explicit config), discovers monorepo structures, and handles the file I/O. Use it as an **MCP server** for AI agents or as a **standalone CLI** in scripts and CI pipelines.
 
 ### Why this exists
 
@@ -47,7 +47,7 @@ You can also force a specific adapter via `"framework": "generic"`, `"framework"
 
 ## Quick Start
 
-### 1. Configure your MCP host
+### As an MCP server
 
 No install needed — your MCP host runs the server via `npx`.
 
@@ -117,6 +117,45 @@ That's it — no configuration needed. The server auto-detects your project stru
 > *"Rename `common.actions.delete` to `common.actions.remove` across all locales"*
 >
 > *"Add Swedish as a new language and translate everything"*
+
+### As a CLI
+
+The same operations are available as CLI commands — useful for CI pipelines, scripts, or quick terminal checks.
+
+```bash
+# Install globally or use npx
+npx the-i18n-mcp detect                          # Auto-detect project config
+npx the-i18n-mcp missing                         # Find missing translations
+npx the-i18n-mcp search --query "save"            # Search keys and values
+npx the-i18n-mcp add --layer root --translations '{"common.btn.ok": {"en": "OK", "de": "OK"}}'
+npx the-i18n-mcp cleanup                          # Find orphan keys (dry-run by default)
+npx the-i18n-mcp serve                            # Start MCP server explicitly
+```
+
+Run `npx the-i18n-mcp --help` for all commands, or `npx the-i18n-mcp <command> --help` for per-command options.
+
+**All commands:**
+
+| Command | Description |
+|---------|-------------|
+| `detect` | Auto-detect i18n configuration |
+| `list-dirs` | List locale directories by layer |
+| `get` | Read translation values |
+| `add` | Add new translation keys |
+| `update` | Update existing keys |
+| `missing` | Find keys missing in target locales |
+| `empty` | Find keys with empty values |
+| `search` | Search keys and values |
+| `remove` | Remove keys from all locales |
+| `rename` | Rename/move a key |
+| `translate` | Get translation contexts for missing keys |
+| `orphans` | Find keys not referenced in source code |
+| `scan` | Find where keys are used in code |
+| `cleanup` | Remove unused keys (dry-run by default) |
+| `scaffold` | Create empty locale files for new languages |
+| `serve` | Start MCP server on stdio |
+
+**Common flags:** `-d, --projectDir <dir>` (project directory), `--json` (JSON output), `--dryRun` (preview changes).
 
 ## Typical Workflows
 
