@@ -27,6 +27,9 @@ export default defineCommand({
   },
   async run({ args }) {
     const keys = splitList(args.keys) ?? []
+    if (keys.length === 0) {
+      throw new Error('No keys provided. Pass comma-separated key paths via --keys')
+    }
     const result = await removeTranslations({
       layer: args.layer,
       keys,

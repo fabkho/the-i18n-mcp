@@ -37,9 +37,14 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    const batchSize = args.batchSize ? parseInt(args.batchSize, 10) : undefined
-    if (batchSize !== undefined && (isNaN(batchSize) || batchSize <= 0)) {
-      throw new Error(`Invalid --batchSize: "${args.batchSize}". Must be a positive integer`)
+    let batchSize: number | undefined
+    if (args.batchSize) {
+      const raw = args.batchSize
+      const num = Number(raw)
+      if (!Number.isInteger(num) || num <= 0 || String(num) !== raw) {
+        throw new Error(`Invalid --batchSize: "${raw}". Must be a positive integer`)
+      }
+      batchSize = num
     }
     const result = await translateMissing({
       layer: args.layer,

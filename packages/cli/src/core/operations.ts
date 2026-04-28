@@ -5,7 +5,7 @@
  * Errors are thrown (ToolError etc.) rather than returned as isError responses.
  */
 
-import { resolve } from 'node:path'
+import { resolve, relative } from 'node:path'
 import { readdir } from 'node:fs/promises'
 
 import { detectI18nConfig, clearConfigCache } from '../config/detector.js'
@@ -86,7 +86,8 @@ export function computeProgressTotal(missingKeyCounts: number[], maxBatch: numbe
 export function validateReportPath(baseDir: string, absPath: string): void {
   const normalizedBase = resolve(baseDir)
   const normalizedPath = resolve(absPath)
-  if (normalizedPath !== normalizedBase && !normalizedPath.startsWith(normalizedBase + '/')) {
+  const rel = relative(normalizedBase, normalizedPath)
+  if (rel.startsWith('..') || rel === '') {
     throw new ToolError(
       `Report path "${absPath}" resolves outside the project directory. Path must stay within "${normalizedBase}".`,
       'INVALID_REPORT_PATH',
@@ -474,6 +475,9 @@ export async function getTranslations(opts: {
   const dir = opts.projectDir ?? process.cwd()
   const config = await detectI18nConfig(dir)
 
+  // Validate layer exists
+  findLayerOrThrow(config, layer)
+
   const localesToRead = locale === '*'
     ? config.locales
     : (() => {
@@ -487,14 +491,10 @@ export async function getTranslations(opts: {
   const results: Record<string, Record<string, unknown>> = {}
 
   for (const loc of localesToRead) {
-    try {
-      const data = await readLocaleData(config, layer, loc)
-      results[loc.code] = Object.fromEntries(
-        keys.map(k => [k, getNestedValue(data, k) ?? null]),
-      )
-    } catch {
-      results[loc.code] = Object.fromEntries(keys.map(k => [k, null]))
-    }
+    const data = await readLocaleData(config, layer, loc)
+    results[loc.code] = Object.fromEntries(
+      keys.map(k => [k, getNestedValue(data, k) ?? null]),
+    )
   }
 
   return results
@@ -1060,6 +1060,9 @@ export async function translateMissing(opts: {
   const config = await detectI18nConfig(dir)
   const isDryRun = opts.dryRun ?? false
   const maxBatch = opts.batchSize ?? 50
+  if (!Number.isFinite(maxBatch) || maxBatch <= 0 || !Number.isInteger(maxBatch)) {
+    throw new ToolError(`Invalid batchSize: ${opts.batchSize}. Must be a positive integer.`, 'INVALID_BATCH_SIZE')
+  }
 
   // Validate layer
   const localeDir = findLayerOrThrow(config, layer)
@@ -1122,7 +1125,13 @@ export async function translateMissing(opts: {
       } catch {}
       preScanCounts.push(countMissingKeys(scanData))
     }
-    opts.onProgressTotal(computeProgressTotal(preScanCounts, maxBatch))
+    // In dry-run or no-sampling mode, only 2 steps per locale (start + complete),
+    // no batch steps. Full batching only when sampling is available and not dry-run.
+    const willBatch = !isDryRun && samplingSupported
+    const total = willBatch
+      ? computeProgressTotal(preScanCounts, maxBatch)
+      : preScanCounts.filter(c => c > 0).length * 2
+    opts.onProgressTotal(total)
   }
 
   const results: Record<string, TranslateMissingLocaleResult> = {}

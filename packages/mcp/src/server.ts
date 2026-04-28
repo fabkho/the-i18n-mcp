@@ -481,7 +481,7 @@ export function createServer(): McpServer {
         let progressCurrent = 0
         let progressTotal: number | undefined
         const progressFn: ProgressFn = async (message: string) => {
-          if (!progressToken) return
+          if (progressToken === undefined) return
           progressCurrent++
           await extra.sendNotification({
             method: 'notifications/progress',

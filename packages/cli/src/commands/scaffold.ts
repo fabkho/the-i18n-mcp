@@ -24,8 +24,12 @@ export default defineCommand({
     },
   },
   async run({ args }) {
+    const locales = splitList(args.locales)
+    if (locales && locales.length === 0) {
+      throw new Error('No locales provided. Pass comma-separated locale codes via --locales')
+    }
     const result = await scaffoldLocaleFiles({
-      locales: splitList(args.locales),
+      locales,
       layer: args.layer,
       dryRun: args.dryRun,
       projectDir: args.projectDir,
