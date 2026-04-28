@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { writeLocaleFile, mutateLocaleFile, writeReportFile } from '../../src/io/json-writer.js'
 import { setNestedValue } from '../../src/io/key-operations.js'
-import { validateReportPath } from '../../src/server.js'
+import { validateReportPath } from '../../src/core/operations.js'
 
 let tempDir: string
 

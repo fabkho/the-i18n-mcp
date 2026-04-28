@@ -6,7 +6,7 @@ export default tseslint.config(
 
   // Project-specific configuration
   {
-    files: ['src/**/*.ts'],
+    files: ['packages/*/src/**/*.ts'],
     rules: {
       // Allow unused vars prefixed with _ (common pattern for intentionally unused params)
       '@typescript-eslint/no-unused-vars': [
@@ -30,7 +30,7 @@ export default tseslint.config(
   // Logger uses console.error() intentionally — all output goes to stderr,
   // which is safe for MCP servers (only stdout is the JSON-RPC transport).
   {
-    files: ['src/utils/logger.ts'],
+    files: ['packages/cli/src/utils/logger.ts'],
     rules: {
       'no-console': ['error', { allow: ['error'] }],
     },
@@ -38,6 +38,6 @@ export default tseslint.config(
 
   // Global ignores (directories that should never be linted)
   {
-    ignores: ['dist/', 'node_modules/', 'playground/', 'coverage/', 'tmp/'],
+    ignores: ['dist/', 'node_modules/', 'playground/', 'coverage/', 'tmp/', 'packages/*/dist/'],
   },
 )
