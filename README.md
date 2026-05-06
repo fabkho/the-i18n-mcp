@@ -51,6 +51,48 @@ Add to your MCP host (VS Code, Cursor, Claude Desktop, Zed):
 | **Laravel** (9+) | PHP arrays | `artisan`, `composer.json`, `lang/` |
 | **Generic** | JSON or PHP | `localeDirs` + `defaultLocale` in `.i18n-mcp.json` |
 
+## Using with Any Framework (Generic Adapter)
+
+For projects that aren't Nuxt or Laravel, create a `.i18n-mcp.json` at your project root with a minimal config pointing to your locale files:
+
+```json
+{
+  "defaultLocale": "en",
+  "localeDirs": ["src/locales"],
+  "locales": ["en", "de", "fr", "es"]
+}
+```
+
+That's it. All tools (search, missing, translate, rename, remove) work immediately.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `defaultLocale` | ✅ | Your reference locale — the source of truth for key completeness |
+| `localeDirs` | ✅ | Paths to directories containing locale files (relative to project root) |
+| `locales` | ❌ | Explicit list of locale codes. If omitted, auto-discovered from filenames on disk |
+
+`localeDirs` supports both flat and layered setups:
+
+```json
+// Flat: all locale files in one directory
+"localeDirs": ["src/i18n"]
+
+// Layered: multiple directories with named layers
+"localeDirs": [
+  { "path": "src/i18n/common", "layer": "common" },
+  { "path": "src/i18n/dashboard", "layer": "dashboard" }
+]
+```
+
+**When to set `locales` explicitly:**
+- Your filenames don't match locale codes (e.g., `translations_de.json` instead of `de.json`)
+- You want to limit which locales are managed (e.g., only 4 of 20 locales)
+- You're bootstrapping a new project and files don't exist yet
+
+If `locales` is omitted, the tool auto-discovers locale codes from JSON filenames (e.g., `en.json` → `"en"`) or subdirectory names in the locale directories.
+
+> 💡 **Tip:** Let your AI agent generate this config. Ask it to analyze your project structure and create the `.i18n-mcp.json` — it can inspect your locale file layout and produce the right config in seconds.
+
 ## Project Config
 
 Drop a `.i18n-mcp.json` at your project root for project-specific context:
