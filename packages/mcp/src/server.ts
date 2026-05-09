@@ -28,9 +28,45 @@ import {
   findLocaleImpl,
 } from 'the-i18n-cli'
 
-import type { SamplingFn, ProgressFn } from 'the-i18n-cli'
+import type { SamplingFn, ProgressFn, ProjectConfig } from 'the-i18n-cli'
 
 // ─── Shared helpers ───────────────────────────────────────────────
+
+function buildProjectConfigSection(pc: ProjectConfig | undefined): string {
+  if (!pc) return ''
+  let s = ''
+  if (pc.context) s += `\nPROJECT CONTEXT: ${pc.context}\n`
+  if (pc.layerRules?.length) {
+    s += '\nLAYER RULES:\n'
+    for (const rule of pc.layerRules) {
+      s += `- ${rule.layer}: ${rule.description} (when: ${rule.when})\n`
+    }
+  }
+  if (pc.glossary && Object.keys(pc.glossary).length > 0) {
+    s += '\nGLOSSARY:\n'
+    for (const [term, definition] of Object.entries(pc.glossary)) {
+      s += `- ${term} → ${definition}\n`
+    }
+  }
+  if (pc.translationPrompt) s += `\nTRANSLATION STYLE: ${pc.translationPrompt}\n`
+  if (pc.localeNotes && Object.keys(pc.localeNotes).length > 0) {
+    s += '\nLOCALE NOTES:\n'
+    for (const [locale, note] of Object.entries(pc.localeNotes)) {
+      s += `- ${locale}: ${note}\n`
+    }
+  }
+  if (pc.examples?.length) {
+    s += '\nEXAMPLES:\n'
+    for (const ex of pc.examples) {
+      const pairs = Object.entries(ex)
+        .filter(([k]) => k !== 'key' && k !== 'note')
+        .map(([locale, val]) => `${locale}: "${val}"`)
+        .join(', ')
+      s += `- ${ex.key}: ${pairs}${ex.note ? ` (${ex.note})` : ''}\n`
+    }
+  }
+  return s
+}
 
 /**
  * Format a caught error into an MCP tool error response.
@@ -808,36 +844,7 @@ export function createServer(): McpServer {
 
       try {
         const config = await detectI18nConfig(dir)
-        const pc = config.projectConfig
-
-        if (pc?.context) {
-          projectConfigSection += `\nPROJECT CONTEXT: ${pc.context}\n`
-        }
-        if (pc?.layerRules && pc.layerRules.length > 0) {
-          projectConfigSection += '\nLAYER RULES:\n'
-          for (const rule of pc.layerRules) {
-            projectConfigSection += `- ${rule.layer}: ${rule.description} (when: ${rule.when})\n`
-          }
-        }
-        if (pc?.glossary && Object.keys(pc.glossary).length > 0) {
-          projectConfigSection += '\nGLOSSARY:\n'
-          for (const [term, definition] of Object.entries(pc.glossary)) {
-            projectConfigSection += `- ${term} → ${definition}\n`
-          }
-        }
-        if (pc?.translationPrompt) {
-          projectConfigSection += `\nTRANSLATION STYLE: ${pc.translationPrompt}\n`
-        }
-        if (pc?.examples && pc.examples.length > 0) {
-          projectConfigSection += '\nEXAMPLES:\n'
-          for (const ex of pc.examples) {
-            const pairs = Object.entries(ex)
-              .filter(([k]) => k !== 'key' && k !== 'note')
-              .map(([locale, val]) => `${locale}: "${val}"`)
-              .join(', ')
-            projectConfigSection += `- ${ex.key}: ${pairs}${ex.note ? ` (${ex.note})` : ''}\n`
-          }
-        }
+        projectConfigSection = buildProjectConfigSection(config.projectConfig)
       } catch {
         // Config detection failed — still provide the prompt without project context
       }
@@ -887,17 +894,7 @@ Follow these steps:
 
       try {
         const config = await detectI18nConfig(dir)
-        const pc = config.projectConfig
-
-        if (pc?.translationPrompt) {
-          projectConfigSection += `\nTRANSLATION STYLE: ${pc.translationPrompt}\n`
-        }
-        if (pc?.glossary && Object.keys(pc.glossary).length > 0) {
-          projectConfigSection += '\nGLOSSARY:\n'
-          for (const [term, definition] of Object.entries(pc.glossary)) {
-            projectConfigSection += `- ${term} → ${definition}\n`
-          }
-        }
+        projectConfigSection = buildProjectConfigSection(config.projectConfig)
       } catch {
         // Config detection failed — still provide the prompt without project context
       }
@@ -909,11 +906,10 @@ ${layerHint}
 ${projectConfigSection}
 Follow these steps:
 
-1. Call \`detect_i18n_config\` to load the project config and understand the locale setup.
-2. Call \`get_missing_translations\` to find all gaps across ${layer ? `the "${layer}" layer` : 'all layers'}.
-3. For each locale with missing keys, call \`translate_missing\` to auto-fill gaps using the reference locale. You may invoke these in parallel as separate tool calls for faster completion — each locale writes to its own file, so concurrent calls are safe.
+1. Call \`get_missing_translations\` to find all gaps across ${layer ? `the "${layer}" layer` : 'all layers'}.
+2. For each locale with missing keys, call \`translate_missing\` to auto-fill gaps using the reference locale. You may invoke these in parallel as separate tool calls for faster completion — each locale writes to its own file, so concurrent calls are safe.
    - If auto-translation is not available, translate the keys yourself using the glossary and style guidelines above, then call \`add_translations\`.
-4. Report a summary of what was translated, organized by layer and locale.`
+3. Report a summary of what was translated, organized by layer and locale.`
 
       return {
         messages: [
@@ -946,23 +942,7 @@ Follow these steps:
         configSection += `\nDEFAULT LOCALE: ${config.defaultLocale}`
         configSection += `\nEXISTING LOCALES: ${config.locales.map(l => `${l.code} (${l.language})`).join(', ')}`
         configSection += `\nLAYERS: ${config.localeDirs.filter(d => !d.aliasOf).map(d => d.layer).join(', ')}`
-
-        const pc = config.projectConfig
-        if (pc?.translationPrompt) {
-          configSection += `\nTRANSLATION STYLE: ${pc.translationPrompt}`
-        }
-        if (pc?.glossary && Object.keys(pc.glossary).length > 0) {
-          configSection += '\nGLOSSARY:'
-          for (const [term, definition] of Object.entries(pc.glossary)) {
-            configSection += `\n- ${term} → ${definition}`
-          }
-        }
-        if (pc?.localeNotes) {
-          configSection += '\nLOCALE NOTES:'
-          for (const [locale, note] of Object.entries(pc.localeNotes)) {
-            configSection += `\n- ${locale}: ${note}`
-          }
-        }
+        configSection += buildProjectConfigSection(config.projectConfig)
       } catch {
         configSection += '\nConfig detection failed — you will need to call detect_i18n_config manually.'
       }
@@ -972,15 +952,14 @@ ${configSection}
 
 Follow these steps:
 
-1. Call \`detect_i18n_config\` to understand the current project setup.
-2. Add the new locale to the framework configuration:
+1. Add the new locale to the framework configuration:
    - **Nuxt**: Add the locale entry to \`i18n.locales\` in \`nuxt.config.ts\` (code, language, file).
    - **Laravel**: Add the locale code to the \`available_locales\` array in \`config/app.php\`.
-3. Call \`scaffold_locale\` with the new locale code to create empty locale files in all layers.
-4. Call \`translate_missing\` for each layer to auto-translate all keys from the default locale. You may call multiple layers in parallel as separate tool calls — each locale has its own file, so concurrent calls are safe. If parallel calls cause errors, fall back to sequential.
+2. Call \`scaffold_locale\` with the new locale code to create empty locale files in all layers.
+3. Call \`translate_missing\` for each layer to auto-translate all keys from the default locale. You may call multiple layers in parallel as separate tool calls — each locale has its own file, so concurrent calls are safe. If parallel calls cause errors, fall back to sequential.
    - If auto-translation is unavailable, use \`get_translations\` to read the default locale, translate the keys yourself, then call \`update_translations\`.
-5. Call \`get_missing_translations\` to verify the new locale has zero missing keys in every layer.
-6. Report a summary: locale code added, files created, keys translated per layer.`
+4. Call \`get_missing_translations\` to verify the new locale has zero missing keys in every layer.
+5. Report a summary: locale code added, files created, keys translated per layer.`
 
       return {
         messages: [
