@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0](https://github.com/fabkho/the-i18n-kit/compare/the-i18n-mcp-3.0.1...the-i18n-mcp-3.1.0) (2026-05-09)
+
+
+### Features
+
+* add outputFile param to large-output tools ([#127](https://github.com/fabkho/the-i18n-kit/issues/127)) ([763494e](https://github.com/fabkho/the-i18n-kit/commit/763494ee3955bf05692f59c65633754dc3d95f67))
+
 ## [3.0.1](https://github.com/fabkho/the-i18n-kit/compare/the-i18n-mcp-3.0.0...the-i18n-mcp-3.0.1) (2026-04-28)
 
 
