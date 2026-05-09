@@ -138,18 +138,21 @@ Drop a `.i18n-mcp.json` at your project root for project-specific context:
 
 The scanner finds translation key references in source code:
 
-**Nuxt/Vue patterns:** `$t('key')`, `t('key')`, `$tc('key')`, `i18n.t('key')`, `v-t="'key'"`, template literals with `$t`
+**Nuxt/Vue patterns:** `$t('key')`, `t('key')`, `$tc('key')`, `i18n.t('key')`, template literals with `$t`
 
 **Laravel/PHP patterns:** `__('key')`, `trans('key')`, `@lang('key')`, `Lang::get('key')`, `trans_choice('key')`
 
-**Dynamic key handling:**
-- Template literals like `` $t(`status.${val}`) `` → the scanner extracts `status.` as a prefix and matches all keys under `status.*`
-- Keys matching dynamic prefixes are excluded from orphan results (reported as "uncertain" separately)
-- String concatenation (`'prefix.' + var`) is **not** detected — use template literals for coverage
+**Bare string candidates:** Any quoted dot-notation string in source (`'some.key'`, `"some.key"`) is treated as a potential key reference — regardless of whether it's inside a `t()` call. This catches patterns like `{ label: 'common.actions.save', i18n: true }` and non-standard i18n call styles.
 
-**Monorepo scope:**
-- Each layer's keys are scanned only against source files that consume that layer
-- Layer consumption is determined by the framework's layer/dependency graph
+**Dynamic key handling:**
+- Template literals: `` $t(`status.${val}`) `` → matches all keys under `status.*`
+- String concatenation: `t('prefix.' + var)` → matches all keys under `prefix.*` (single-line and multiline forms both detected)
+- Keys matched by dynamic patterns are reported as "uncertain" separately and excluded from cleanup
+
+**Scan scope:**
+- The scanner always starts from the project root and recurses into all subdirectories
+- All layers share the same combined scan results — no per-layer dependency graph needed
+- Standard ignore dirs (`node_modules`, `.nuxt`, `.output`, `dist`) are excluded automatically
 
 ## Development
 

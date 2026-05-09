@@ -1,11 +1,9 @@
 import { readFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { glob } from 'tinyglobby'
-import { DepGraph } from 'dependency-graph'
 import { log } from '../utils/logger.js'
 import type { ScanPatternSet } from './patterns.js'
 import { VUE_NUXT_PATTERNS } from './patterns.js'
-import type { AppInfo } from '../config/types.js'
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -238,9 +236,15 @@ export async function scanSourceFiles(rootDir: string, excludeDirs?: string[], p
   let filesScanned = 0
 
   const BARE_DOTTED_STRING = /(['"])((?:[\w-]+\.)+[\w-]+)\1/g
-  const BARE_DYNAMIC_TEMPLATE = /`((?:[^`\\]|\\.)*\$\{(?:[^`\\]|\\.)*)`/g
+  const BARE_DYNAMIC_TEMPLATE = /`([^`\\\n]{0,200}\$\{[^`\\\n]{0,200})`/g
   /** Matches PHP double-quoted strings containing $var or {$var} interpolation with at least one dot */
   const BARE_PHP_DYNAMIC = /"((?:[^"\\]|\\.)*(?:\{\$|\$[a-zA-Z_])(?:[^"\\]|\\.)*)"/g
+  /**
+   * Matches string concat prefixes ending with a dot: 'some.key.' + var
+   * Catches multiline t() calls where the prefix is on a separate line from t(.
+   * Group 1: the prefix without trailing dot.
+   */
+  const BARE_CONCAT_PREFIX = /['"](((?:[\w-]+\.)+[\w-]+)\.)['"]\s*\+/g
 
   for (const relPath of relativePaths) {
     const filePath = join(rootDir, relPath)
@@ -277,6 +281,12 @@ export async function scanSourceFiles(rootDir: string, excludeDirs?: string[], p
         .replace(/\{\$[^}]+\}/g, '${_}')
         .replace(/\$[a-zA-Z_][a-zA-Z0-9_]*(?:->[a-zA-Z_][a-zA-Z0-9_]*)*/g, '${_}')
       bareDynamicCandidates.add(`\`${normalized}\``)
+    }
+
+    // Concat prefix: 'some.key.' + var  (catches multiline t() calls)
+    BARE_CONCAT_PREFIX.lastIndex = 0
+    for (const match of content.matchAll(BARE_CONCAT_PREFIX)) {
+      bareDynamicCandidates.add(`\`${match[2]}.\${_}\``)
     }
 
     filesScanned++
@@ -324,100 +334,10 @@ export function buildIgnorePatternRegexes(patterns: string[]): RegExp[] {
   })
 }
 
-// ─── Layer scan planning ────────────────────────────────────────
-
-export interface LayerScanPlan {
-  dir: string
-  excludeDirs: string[]
-}
-
-export async function scanAllApps(
-  apps: AppInfo[],
-  excludeDirs: string[] | undefined,
-  patterns?: ScanPatternSet,
-): Promise<Map<string, ScanResult>> {
-  const cache = new Map<string, ScanResult>()
-  const seen = new Set<string>()
-
-  for (const app of apps) {
-    if (seen.has(app.rootDir)) continue
-    seen.add(app.rootDir)
-    const result = await scanSourceFiles(app.rootDir, excludeDirs ?? [], patterns)
-    cache.set(app.rootDir, result)
-  }
-
-  return cache
-}
-
-export function buildLayerScanPlan(
-  layerName: string,
-  apps: AppInfo[],
-  userExcludeDirs: string[] | undefined,
-): LayerScanPlan[] {
-  const baseExclude = userExcludeDirs ?? []
-  const graph = new DepGraph<string>()
-  const APP_PREFIX = 'app::'
-
-  for (const app of apps) {
-    graph.addNode(APP_PREFIX + app.name, app.rootDir)
-    for (const layer of app.layers) {
-      if (!graph.hasNode(layer)) graph.addNode(layer, '')
-      graph.addDependency(APP_PREFIX + app.name, layer)
-    }
-  }
-
-  let consumerAppNames: string[]
-  try {
-    consumerAppNames = graph.dependantsOf(layerName)
-      .filter(n => n.startsWith(APP_PREFIX))
-      .map(n => n.slice(APP_PREFIX.length))
-  } catch {
-    consumerAppNames = apps.map(a => a.name)
-  }
-
-  if (consumerAppNames.length === 0) {
-    consumerAppNames = [layerName]
-  }
-
-  const scannedDirs = new Set<string>()
-  const plans: LayerScanPlan[] = []
-
-  const layerRootDirs = new Map<string, string>()
-  for (const app of apps) {
-    layerRootDirs.set(app.name, app.rootDir)
-  }
-
-  for (const appName of consumerAppNames) {
-    const app = apps.find(a => a.name === appName)
-    if (!app) continue
-    if (!scannedDirs.has(app.rootDir)) {
-      scannedDirs.add(app.rootDir)
-      plans.push({ dir: app.rootDir, excludeDirs: baseExclude })
-    }
-    for (const depLayer of app.layers) {
-      const depApp = apps.find(a => a.name === depLayer)
-      if (!depApp) continue
-      if (scannedDirs.has(depApp.rootDir)) continue
-      scannedDirs.add(depApp.rootDir)
-      plans.push({ dir: depApp.rootDir, excludeDirs: baseExclude })
-    }
-  }
-
-  if (plans.length === 0) {
-    for (const app of apps) {
-      if (scannedDirs.has(app.rootDir)) continue
-      scannedDirs.add(app.rootDir)
-      plans.push({ dir: app.rootDir, excludeDirs: baseExclude })
-    }
-  }
-
-  return plans
-}
-
 export interface OrphanScanOptions {
   keysByLayer: Map<string, { keys: string[]; localeDir: { layer: string } }>
-  apps: AppInfo[]
-  scanDirs?: string[]
+  /** Root directories to scan for source file usage. Scanned recursively. */
+  scanDirs: string[]
   excludeDirs?: string[]
   resolveIgnorePatterns: (layerName: string) => string[] | undefined
   patterns?: ScanPatternSet
@@ -450,67 +370,40 @@ export interface OrphanScanResult {
 }
 
 export async function findOrphanKeysForConfig(options: OrphanScanOptions): Promise<OrphanScanResult> {
-  const { keysByLayer, apps, scanDirs, excludeDirs, resolveIgnorePatterns, patterns } = options
+  const { keysByLayer, scanDirs, excludeDirs, resolveIgnorePatterns, patterns } = options
 
-  let scanCache: Map<string, ScanResult>
-  if (scanDirs) {
-    scanCache = new Map()
-    for (const dir of scanDirs) {
-      scanCache.set(dir, await scanSourceFiles(dir, excludeDirs ?? [], patterns))
+  // Single recursive scan from each provided root dir.
+  // All layers share the combined results — no per-layer scan planning needed.
+  const combinedUniqueKeys = new Set<string>()
+  const combinedBareStrings = new Set<string>()
+  const allDynamicKeysRaw: Array<{ expression: string; file: string; line: number; callee: string }> = []
+  let totalFilesScanned = 0
+
+  for (const dir of scanDirs) {
+    const result = await scanSourceFiles(dir, excludeDirs ?? [], patterns)
+    totalFilesScanned += result.filesScanned
+    for (const key of result.uniqueKeys) combinedUniqueKeys.add(key)
+    for (const bare of result.bareStringCandidates) combinedBareStrings.add(bare)
+    allDynamicKeysRaw.push(...result.dynamicKeys)
+    for (const bd of result.bareDynamicCandidates) {
+      allDynamicKeysRaw.push({ expression: bd, file: '', line: 0, callee: '' })
     }
-  } else {
-    scanCache = await scanAllApps(apps, excludeDirs, patterns)
   }
+
+  const dynamicKeyRegexes = buildDynamicKeyRegexes(allDynamicKeysRaw)
+  const unresolvedWarnings = buildUnresolvedWarnings(allDynamicKeysRaw)
+  const uncertainRegexes = buildIgnorePatternRegexes(unresolvedWarnings.map(w => w.suggestedIgnorePattern))
 
   const orphansByLayer: Record<string, string[]> = {}
   let orphanCount = 0
   const uncertainByLayer: Record<string, string[]> = {}
   let uncertainCount = 0
-  let totalFilesScanned = 0
   let dynamicMatchedCount = 0
   let ignoredCount = 0
-  const allDynamicKeys: Array<{ expression: string; file: string; line: number; callee: string }> = []
-  const dirsScanned: string[] = []
-
-  for (const result of scanCache.values()) {
-    totalFilesScanned += result.filesScanned
-  }
-
-  const unresolvedWarnings: UnresolvedKeyWarning[] = []
 
   for (const [layerName, { keys }] of keysByLayer) {
-    let relevantResults: ScanResult[]
-    if (scanDirs) {
-      relevantResults = [...scanCache.values()]
-    } else {
-      const plans = buildLayerScanPlan(layerName, apps, excludeDirs)
-      dirsScanned.push(...plans.map(p => p.dir))
-      relevantResults = plans
-        .map(p => scanCache.get(p.dir))
-        .filter((r): r is ScanResult => r !== undefined)
-    }
-
-    const combinedUniqueKeys = new Set<string>()
-    const combinedBareStrings = new Set<string>()
-    const layerDynamicKeys: Array<{ expression: string; file: string; line: number; callee: string }> = []
-
-    for (const result of relevantResults) {
-      for (const key of result.uniqueKeys) combinedUniqueKeys.add(key)
-      for (const bare of result.bareStringCandidates) combinedBareStrings.add(bare)
-      layerDynamicKeys.push(...result.dynamicKeys)
-      for (const bd of result.bareDynamicCandidates) {
-        layerDynamicKeys.push({ expression: bd, file: '', line: 0, callee: '' })
-      }
-    }
-
-    allDynamicKeys.push(...layerDynamicKeys)
-    const dynamicKeyRegexes = buildDynamicKeyRegexes(layerDynamicKeys)
     const ignorePatterns = resolveIgnorePatterns(layerName)
     const ignoreRegexes = ignorePatterns ? buildIgnorePatternRegexes(ignorePatterns) : []
-
-    const layerWarnings = buildUnresolvedWarnings(layerDynamicKeys)
-    unresolvedWarnings.push(...layerWarnings)
-    const uncertainRegexes = buildIgnorePatternRegexes(layerWarnings.map(w => w.suggestedIgnorePattern))
 
     const orphans = keys.filter((k) => {
       if (combinedUniqueKeys.has(k)) return false
@@ -554,8 +447,8 @@ export async function findOrphanKeysForConfig(options: OrphanScanOptions): Promi
     totalFilesScanned,
     dynamicMatchedCount,
     ignoredCount,
-    allDynamicKeys,
-    dirsScanned: [...new Set(dirsScanned)],
+    allDynamicKeys: allDynamicKeysRaw,
+    dirsScanned: scanDirs,
     unresolvedKeyWarnings: unresolvedWarnings,
   }
 }

@@ -1376,8 +1376,7 @@ export async function findOrphanKeysOp(opts: {
 
   const orphanResult = await findOrphanKeysForConfig({
     keysByLayer,
-    apps: config.apps,
-    scanDirs: scanDirs || undefined,
+    scanDirs: scanDirs || [dir],
     excludeDirs: excludeDirs || undefined,
     resolveIgnorePatterns: (layerName) => resolveOrphanIgnorePatterns(config, layerName),
     patterns: getPatternSet(config.localeFileFormat),
@@ -1597,8 +1596,7 @@ export async function cleanupUnusedTranslations(opts: {
 
   const orphanResult = await findOrphanKeysForConfig({
     keysByLayer,
-    apps: config.apps,
-    scanDirs: scanDirs || undefined,
+    scanDirs: scanDirs || [dir],
     excludeDirs: excludeDirs || undefined,
     resolveIgnorePatterns: (layerName) => resolveOrphanIgnorePatterns(config, layerName),
     patterns: getPatternSet(config.localeFileFormat),
