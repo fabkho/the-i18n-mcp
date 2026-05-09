@@ -207,7 +207,7 @@ export function createServer(): McpServer {
               z.string().describe('Translation string value for this locale'),
             ),
           )
-          .describe('Map of dot-path keys to locale-value pairs. Example: { "auth.failed": { "en": "Login failed", "de": "Anmeldung fehlgeschlagen" } }'),
+          .describe('Map of dot-path keys to locale-value pairs. IMPORTANT: values must be locale maps, NOT plain strings. Wrong: { "auth.failed": "Login failed" }. Correct: { "auth.failed": { "en": "Login failed", "de": "Anmeldung fehlgeschlagen" } }'),
         dryRun: z
           .boolean()
           .optional()
@@ -248,7 +248,7 @@ export function createServer(): McpServer {
               z.string().describe('New translation string value for this locale'),
             ),
           )
-          .describe('Map of dot-path keys to updated locale-value pairs. Example: { "auth.failed": { "en": "Login failed", "de": "Anmeldung fehlgeschlagen" } }'),
+          .describe('Map of dot-path keys to updated locale-value pairs. IMPORTANT: values must be locale maps, NOT plain strings. Wrong: { "auth.failed": "Login failed" }. Correct: { "auth.failed": { "en": "Login failed", "de": "Anmeldung fehlgeschlagen" } }'),
         dryRun: z
           .boolean()
           .optional()
@@ -471,7 +471,7 @@ export function createServer(): McpServer {
     {
       title: 'Translate Missing',
       description:
-        'Find keys missing in target locales and translate them. Uses the host LLM via MCP sampling if available, otherwise returns context for the agent to translate inline. Uses project config (glossary, translation prompt, locale notes, examples) if available. Each locale writes to its own file — parallel calls targeting different locales are safe.',
+        'Find keys missing in target locales and translate them. Uses the host LLM via MCP sampling if available, otherwise returns context for the agent to translate inline. Uses project config (glossary, translation prompt, locale notes, examples) if available. Each locale writes to its own file — parallel calls targeting different locales are safe. When translating many locales (5+), pass targetLocales in batches of 5-6 to avoid request timeouts.',
       annotations: {
         title: 'Translate Missing Translations',
         readOnlyHint: false,
