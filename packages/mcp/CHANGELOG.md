@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.2.0](https://github.com/fabkho/the-i18n-kit/compare/the-i18n-mcp-3.1.0...the-i18n-mcp-3.2.0) (2026-05-09)
+
+
+### Features
+
+* **mcp:** improve project config section in prompts ([1048be5](https://github.com/fabkho/the-i18n-kit/commit/1048be5d2dd732fc504bf9b7df58a95ceec80d5a))
+
+
+### Bug Fixes
+
+* **mcp:** clearer schema hint for add_translations, batching hint for translate_missing ([#131](https://github.com/fabkho/the-i18n-kit/issues/131)) ([760cff7](https://github.com/fabkho/the-i18n-kit/commit/760cff754bcc1e3168ad1b0bb7f6c8c5507e5fdd))
+
 ## [3.1.0](https://github.com/fabkho/the-i18n-kit/compare/the-i18n-mcp-3.0.1...the-i18n-mcp-3.1.0) (2026-05-09)
 
 
