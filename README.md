@@ -3,24 +3,66 @@
 [![CI](https://github.com/fabkho/the-i18n-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/fabkho/the-i18n-kit/actions/workflows/ci.yml)
 [![License](https://img.shields.io/npm/l/the-i18n-mcp?style=flat&colorA=18181b&colorB=4fc08d)](https://github.com/fabkho/the-i18n-kit/blob/main/LICENSE)
 
-Toolkit for managing i18n translation files — read, write, search, rename, and remove translation keys across all locales and layers. Supports Nuxt, Laravel, and any project with JSON or PHP locale files.
+**Translation file management for developers and AI agents.** Find missing keys, remove dead ones, rename across all locales at once — from the terminal or from inside your AI coding session.
+
+---
+
+## The Problem
+
+Managing i18n at scale is tedious:
+
+- You add a new UI component and need to create the translation key in **every locale file** — manually
+- Over time, removed components leave behind **hundreds of orphan keys** nobody uses
+- You rename a key and have to hunt it down across **30+ JSON files**
+- Your AI agent writes `$t('some.key')` and has no idea where the locale files live or what already exists
+- `translate_missing` returns 50KB of JSON that floods your agent's context window
+
+The-i18n-kit solves all of this.
+
+## How It Works
+
+The-i18n-kit auto-detects your project structure (Nuxt, Laravel, or any generic setup), then gives you two interfaces:
+
+**A CLI** for direct use in the terminal:
+```bash
+the-i18n-cli missing              # what's not translated yet?
+the-i18n-cli orphans              # what keys are dead code?
+the-i18n-cli rename old.key new.key   # rename across all locales at once
+the-i18n-cli cleanup              # remove orphan keys (dry-run by default)
+```
+
+**An MCP server** that plugs into AI coding agents (Cursor, Claude, VS Code, Zed). Your agent can read, write, and maintain translation files as part of its normal workflow — with your glossary, tone notes, and layer rules loaded as context so translations stay consistent.
+
+```
+Agent adds $t('booking.confirm.title')
+  → calls add_translations (writes to all locales using its own LLM)
+  → calls translate_missing (fills remaining locales via MCP sampling)
+Done. All 28 locales updated, consistent terminology, no manual work.
+```
+
+---
 
 ## Packages
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [**the-i18n-cli**](./packages/cli) | [![npm](https://img.shields.io/npm/v/the-i18n-cli?style=flat&colorA=18181b&colorB=4fc08d)](https://npmjs.com/package/the-i18n-cli) | CLI and core library — globally installable |
+| [**the-i18n-cli**](./packages/cli) | [![npm](https://img.shields.io/npm/v/the-i18n-cli?style=flat&colorA=18181b&colorB=4fc08d)](https://npmjs.com/package/the-i18n-cli) | CLI + core library — install globally |
 | [**the-i18n-mcp**](./packages/mcp) | [![npm](https://img.shields.io/npm/v/the-i18n-mcp?style=flat&colorA=18181b&colorB=4fc08d)](https://npmjs.com/package/the-i18n-mcp) | MCP server for AI agents |
+
+---
+
+## Quick Start
 
 ### CLI
 
 ```bash
 npm install -g the-i18n-cli
 
-the-i18n-cli detect                    # Auto-detect project config
-the-i18n-cli missing                   # Find missing translations
-the-i18n-cli search --query "save"     # Search keys and values
-the-i18n-cli cleanup                   # Find orphan keys (dry-run by default)
+the-i18n-cli detect                    # verify project is auto-detected
+the-i18n-cli missing                   # find missing translations
+the-i18n-cli orphans                   # find unused translation keys
+the-i18n-cli search --query "save"     # search keys and values
+the-i18n-cli cleanup                   # remove orphan keys (dry-run by default)
 ```
 
 → [Full CLI documentation](./packages/cli/README.md)
@@ -43,6 +85,8 @@ Add to your MCP host (VS Code, Cursor, Claude Desktop, Zed):
 
 → [Full MCP documentation](./packages/mcp/README.md)
 
+---
+
 ## Supported Frameworks
 
 | Framework | Locale Format | Auto-Detection |
@@ -53,7 +97,7 @@ Add to your MCP host (VS Code, Cursor, Claude Desktop, Zed):
 
 ## Using with Any Framework (Generic Adapter)
 
-For projects that aren't Nuxt or Laravel, create a `.i18n-mcp.json` at your project root with a minimal config pointing to your locale files:
+For projects that aren't Nuxt or Laravel, create a `.i18n-mcp.json` at your project root:
 
 ```json
 {
@@ -63,13 +107,13 @@ For projects that aren't Nuxt or Laravel, create a `.i18n-mcp.json` at your proj
 }
 ```
 
-That's it. All tools (search, missing, translate, rename, remove) work immediately.
+All tools work immediately.
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `defaultLocale` | ✅ | Your reference locale — the source of truth for key completeness |
-| `localeDirs` | ✅ | Paths to directories containing locale files (relative to project root) |
-| `locales` | ❌ | Explicit list of locale codes. If omitted, auto-discovered from filenames on disk |
+| `localeDirs` | ✅ | Paths to locale directories (relative to project root) |
+| `locales` | ❌ | Explicit locale codes. If omitted, auto-discovered from filenames |
 
 `localeDirs` supports both flat and layered setups:
 
@@ -84,18 +128,13 @@ That's it. All tools (search, missing, translate, rename, remove) work immediate
 ]
 ```
 
-**When to set `locales` explicitly:**
-- Your filenames don't match locale codes (e.g., `translations_de.json` instead of `de.json`)
-- You want to limit which locales are managed (e.g., only 4 of 20 locales)
-- You're bootstrapping a new project and files don't exist yet
+> 💡 **Tip:** Let your AI agent generate this config. Ask it to inspect your locale file layout and create the `.i18n-mcp.json` — takes seconds.
 
-If `locales` is omitted, the tool auto-discovers locale codes from JSON filenames (e.g., `en.json` → `"en"`) or subdirectory names in the locale directories.
-
-> 💡 **Tip:** Let your AI agent generate this config. Ask it to analyze your project structure and create the `.i18n-mcp.json` — it can inspect your locale file layout and produce the right config in seconds.
+---
 
 ## Project Config
 
-Drop a `.i18n-mcp.json` at your project root for project-specific context:
+Drop a `.i18n-mcp.json` at your project root to give agents (and the CLI) project context:
 
 ```json
 {
@@ -113,6 +152,8 @@ Drop a `.i18n-mcp.json` at your project root for project-specific context:
 }
 ```
 
+This context is automatically loaded by `detect_i18n_config` before any translation work, so agents use the right terminology and tone across all locales.
+
 <details>
 <summary><strong>All config options</strong></summary>
 
@@ -126,13 +167,50 @@ Drop a `.i18n-mcp.json` at your project root for project-specific context:
 | `localeNotes` | Per-locale instructions (formality, terminology) |
 | `examples` | Few-shot translation examples |
 | `orphanScan` | Per-layer ignore patterns for orphan detection |
-| `reportOutput` | `true` or path for diagnostic report output |
+| `reportOutput` | `true` or path — write large tool output to disk instead of returning it inline |
 | `samplingPreferences` | Override model preferences for `translate_missing` |
 | `localeDirs` | Locale directories for the generic adapter |
 | `defaultLocale` | Default locale code (required for generic adapter) |
 | `locales` | Explicit list of locale codes |
 
 </details>
+
+---
+
+## Agent Translation Workflow
+
+When an AI agent builds a feature and adds new translation keys:
+
+1. **Agent adds `$t('some.key')`** to the Vue/Blade component
+2. **Agent calls `detect_i18n_config`** → loads `.i18n-mcp.json` (context, glossary, layerRules) into its session
+3. **Agent calls `add_translations`** — writes translations for all locales at once using the glossary and context it just loaded. The agent's own LLM does the translation work. No separate sampling involved.
+4. **Agent calls `translate_missing`** → MCP sampling fills any locales the agent didn't cover via a separate LLM call.
+
+The `add-feature-translations` MCP prompt codifies this as a reusable workflow. It also checks for duplicate keys via `search_translations` before writing.
+
+> **`add_translations` vs `translate_missing`:** `add_translations` is a pure write tool — takes a `{key: value}` map and writes it, no LLM involved. `translate_missing` is where sampling happens: reads the reference locale, builds a prompt from glossary + localeNotes + examples, and calls the LLM to fill gaps across all other locales.
+
+---
+
+## Handling Large Outputs
+
+Tools like `find_orphan_keys` and `get_missing_translations` can return large payloads. Pass `--output-file` (CLI) or `outputFile` (MCP) to write the full report to disk and get only a compact summary back:
+
+```bash
+the-i18n-cli orphans --output-file /tmp/orphans.json
+# → Wrote report to: /tmp/orphans.json
+# → { orphanCount: 1103, filesScanned: 2526, ... }
+```
+
+```json
+// MCP call
+{ "tool": "find_orphan_keys", "arguments": { "outputFile": "/tmp/orphans.json" } }
+// → { "reportFile": "/tmp/orphans.json", "summary": { ... } }
+```
+
+Alternatively, set `reportOutput: true` in `.i18n-mcp.json` to always write reports to `.i18n-reports/` in the project root.
+
+---
 
 ## How Orphan Detection Works
 
@@ -150,9 +228,10 @@ The scanner finds translation key references in source code:
 - Keys matched by dynamic patterns are reported as "uncertain" separately and excluded from cleanup
 
 **Scan scope:**
-- The scanner always starts from the project root and recurses into all subdirectories
-- All layers share the same combined scan results — no per-layer dependency graph needed
-- Standard ignore dirs (`node_modules`, `.nuxt`, `.output`, `dist`) are excluded automatically
+- Scans recursively from the project root — all source files, all layers
+- Standard ignore dirs (`node_modules`, `.nuxt`, `.output`, `dist`) excluded automatically
+
+---
 
 ## Development
 
@@ -165,6 +244,8 @@ pnpm typecheck      # TypeScript check all packages
 ```
 
 Set `DEBUG=1` to enable verbose logging to stderr.
+
+---
 
 ## Roadmap
 
