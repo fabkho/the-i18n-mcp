@@ -12,5 +12,12 @@ coverage/
 tmp/
 .tmp-*
 .pi/
+.sisyphus/
 battle-*.ts
 tests/battle-*.test.ts
+
+# Planning / drafts
+PLAN.md
+AGENT_HANDOFF.md
+*-plan.md
+reddit-post-*.md
