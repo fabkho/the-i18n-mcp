@@ -601,6 +601,7 @@ export async function getMissingTranslations(opts: {
   targetLocales?: string[]
   locales?: string[]
   projectDir?: string
+  outputFile?: string
 }): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { layer } = opts
   const dir = opts.projectDir ?? process.cwd()
@@ -687,7 +688,7 @@ export async function getMissingTranslations(opts: {
     },
   }
 
-  const reportPath = resolveReportFilePath(config, dir, 'get_missing_translations')
+  const reportPath = opts.outputFile ?? resolveReportFilePath(config, dir, 'get_missing_translations')
   if (reportPath) {
     await writeReportFile(reportPath, output, {
       tool: 'get_missing_translations',
@@ -706,6 +707,7 @@ export async function findEmptyTranslations(opts: {
   layer?: string
   locale?: string
   projectDir?: string
+  outputFile?: string
 }): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { layer, locale } = opts
   const dir = opts.projectDir ?? process.cwd()
@@ -770,7 +772,7 @@ export async function findEmptyTranslations(opts: {
     },
   }
 
-  const reportPath = resolveReportFilePath(config, dir, 'find_empty_translations')
+  const reportPath = opts.outputFile ?? resolveReportFilePath(config, dir, 'find_empty_translations')
   if (reportPath) {
     await writeReportFile(reportPath, output, {
       tool: 'find_empty_translations',
@@ -1316,6 +1318,7 @@ export async function findOrphanKeysOp(opts: {
   scanDirs?: string[]
   excludeDirs?: string[]
   projectDir?: string
+  outputFile?: string
 }): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { layer, locale, scanDirs, excludeDirs } = opts
   const dir = opts.projectDir ?? process.cwd()
@@ -1363,7 +1366,7 @@ export async function findOrphanKeysOp(opts: {
   const totalKeys = [...keysByLayer.values()].reduce((sum, v) => sum + v.keys.length, 0)
   if (totalKeys === 0) {
     const emptyOutput = { orphanKeys: {} as Record<string, string[]>, summary: { totalKeys: 0, orphanCount: 0, filesScanned: 0, message: 'No translation keys found in locale files.' } }
-    const reportPath = resolveReportFilePath(config, dir, 'find_orphan_keys')
+    const reportPath = opts.outputFile ?? resolveReportFilePath(config, dir, 'find_orphan_keys')
     if (reportPath) {
       await writeReportFile(reportPath, emptyOutput, {
         tool: 'find_orphan_keys',
@@ -1430,7 +1433,7 @@ export async function findOrphanKeysOp(opts: {
       : undefined,
   }
 
-  const reportPath = resolveReportFilePath(config, dir, 'find_orphan_keys')
+  const reportPath = opts.outputFile ?? resolveReportFilePath(config, dir, 'find_orphan_keys')
   if (reportPath) {
     await writeReportFile(reportPath, output, {
       tool: 'find_orphan_keys',
@@ -1450,6 +1453,7 @@ export async function scanCodeUsageOp(opts: {
   scanDirs?: string[]
   excludeDirs?: string[]
   projectDir?: string
+  outputFile?: string
 }): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { keys, scanDirs, excludeDirs } = opts
   const dir = opts.projectDir ?? process.cwd()
@@ -1513,7 +1517,7 @@ export async function scanCodeUsageOp(opts: {
     }))
   }
 
-  const reportPath = resolveReportFilePath(config, dir, 'scan_code_usage')
+  const reportPath = opts.outputFile ?? resolveReportFilePath(config, dir, 'scan_code_usage')
   if (reportPath) {
     await writeReportFile(reportPath, output, {
       tool: 'scan_code_usage',
@@ -1535,6 +1539,7 @@ export async function cleanupUnusedTranslations(opts: {
   excludeDirs?: string[]
   dryRun?: boolean
   projectDir?: string
+  outputFile?: string
 }): Promise<Record<string, unknown>> { // TODO: use specific result type from types.ts
   const { layer, locale, scanDirs, excludeDirs } = opts
   const dir = opts.projectDir ?? process.cwd()
@@ -1583,7 +1588,7 @@ export async function cleanupUnusedTranslations(opts: {
   const totalKeys = [...keysByLayer.values()].reduce((sum, v) => sum + v.keys.length, 0)
   if (totalKeys === 0) {
     const emptyOutput = { orphanKeys: {}, removed: {}, summary: { totalKeys: 0, orphanCount: 0, message: 'No translation keys found.' } }
-    const emptyReportPath = resolveReportFilePath(config, dir, 'cleanup_unused_translations')
+    const emptyReportPath = opts.outputFile ?? resolveReportFilePath(config, dir, 'cleanup_unused_translations')
     if (emptyReportPath) {
       await writeReportFile(emptyReportPath, emptyOutput, {
         tool: 'cleanup_unused_translations',
@@ -1623,7 +1628,7 @@ export async function cleanupUnusedTranslations(opts: {
       uncertainKeys: orphanResult.uncertainCount > 0 ? orphanResult.uncertainByLayer : undefined,
       summary: { totalKeys, orphanCount: 0, uncertainCount: orphanResult.uncertainCount, dynamicMatchedCount, ignoredCount, filesScanned: totalFilesScanned, message: messageParts.join(' ') },
     }
-    const zeroReportPath = resolveReportFilePath(config, dir, 'cleanup_unused_translations')
+    const zeroReportPath = opts.outputFile ?? resolveReportFilePath(config, dir, 'cleanup_unused_translations')
     if (zeroReportPath) {
       await writeReportFile(zeroReportPath, zeroOutput, {
         tool: 'cleanup_unused_translations',
@@ -1664,7 +1669,7 @@ export async function cleanupUnusedTranslations(opts: {
         suggestedIgnorePattern: w.suggestedIgnorePattern,
       }))
     }
-    const dryRunReportPath = resolveReportFilePath(config, dir, 'cleanup_unused_translations')
+    const dryRunReportPath = opts.outputFile ?? resolveReportFilePath(config, dir, 'cleanup_unused_translations')
     if (dryRunReportPath) {
       await writeReportFile(dryRunReportPath, output, {
         tool: 'cleanup_unused_translations',
@@ -1715,7 +1720,7 @@ export async function cleanupUnusedTranslations(opts: {
     },
   }
 
-  const removalReportPath = resolveReportFilePath(config, dir, 'cleanup_unused_translations')
+  const removalReportPath = opts.outputFile ?? resolveReportFilePath(config, dir, 'cleanup_unused_translations')
   if (removalReportPath) {
     await writeReportFile(removalReportPath, removalOutput, {
       tool: 'cleanup_unused_translations',

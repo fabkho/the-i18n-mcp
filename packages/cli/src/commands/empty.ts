@@ -17,12 +17,17 @@ export default defineCommand({
       type: 'string',
       description: 'Filter to a specific locale',
     },
+    outputFile: {
+      type: 'string',
+      description: 'Write full output to this file path and return only a summary (useful for large outputs)',
+    },
   },
   async run({ args }) {
     const result = await findEmptyTranslations({
       layer: args.layer,
       locale: args.locale,
       projectDir: args.projectDir,
+      outputFile: args.outputFile,
     })
     outputResult(result, args)
   },

@@ -22,6 +22,10 @@ export default defineCommand({
       description: 'Preview without removing (default: true)',
       default: true,
     },
+    outputFile: {
+      type: 'string',
+      description: 'Write full output to this file path and return only a summary (useful for large outputs)',
+    },
   },
   async run({ args }) {
     const result = await cleanupUnusedTranslations({
@@ -29,6 +33,7 @@ export default defineCommand({
       locale: args.locale,
       dryRun: args.dryRun,
       projectDir: args.projectDir,
+      outputFile: args.outputFile,
     })
     outputResult(result, args)
   },

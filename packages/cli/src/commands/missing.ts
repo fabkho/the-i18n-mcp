@@ -21,6 +21,10 @@ export default defineCommand({
       type: 'string',
       description: 'Comma-separated target locales (default: all except ref)',
     },
+    outputFile: {
+      type: 'string',
+      description: 'Write full output to this file path and return only a summary (useful for large outputs)',
+    },
   },
   async run({ args }) {
     const result = await getMissingTranslations({
@@ -28,6 +32,7 @@ export default defineCommand({
       referenceLocale: args.ref,
       targetLocales: splitList(args.targets),
       projectDir: args.projectDir,
+      outputFile: args.outputFile,
     })
     outputResult(result, args)
   },
