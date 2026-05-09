@@ -17,7 +17,7 @@ Managing i18n at scale is tedious:
 - Your AI agent writes `$t('some.key')` and has no idea where the locale files live or what already exists
 - `translate_missing` returns 50KB of JSON that floods your agent's context window
 
-GUI tools like [BabelEdit](https://www.codeandweb.com/babeledit) help with the visual editing — but they don't detect orphans from source code and have no AI agent integration. The-i18n-kit solves all of this.
+The-i18n-kit solves all of this.
 
 ## How It Works
 
