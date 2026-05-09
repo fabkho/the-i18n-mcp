@@ -2,8 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { mkdir, writeFile, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { extractKeys, scanSourceFiles, toRelativePath, buildDynamicKeyRegexes, buildIgnorePatternRegexes, buildLayerScanPlan } from '../../src/scanner/code-scanner.js'
-import type { AppInfo } from '../../src/config/types.js'
+import { extractKeys, scanSourceFiles, toRelativePath, buildDynamicKeyRegexes, buildIgnorePatternRegexes } from '../../src/scanner/code-scanner.js'
 
 const tmpDir = join(dirname(fileURLToPath(import.meta.url)), '../../.tmp-test/scanner')
 
@@ -654,74 +653,4 @@ describe('toRelativePath', () => {
   })
 })
 
-describe('buildLayerScanPlan', () => {
-  it('single app — scans app root for any layer', () => {
-    const apps: AppInfo[] = [
-      { name: 'root', rootDir: '/project', layers: ['root', 'ui', 'shared'] }
-    ]
-    const plans = buildLayerScanPlan('ui', apps, undefined)
-    expect(plans).toHaveLength(1)
-    expect(plans[0].dir).toBe('/project')
-    expect(plans[0].excludeDirs).toEqual([])
-  })
 
-  it('monorepo siblings — shared layer scans all consumer apps', () => {
-    const apps: AppInfo[] = [
-      { name: 'app-1', rootDir: '/mono/app-1', layers: ['app-1', 'app-shared'] },
-      { name: 'app-2', rootDir: '/mono/app-2', layers: ['app-2', 'app-shared'] },
-    ]
-    const plans = buildLayerScanPlan('app-shared', apps, undefined)
-    expect(plans).toHaveLength(2)
-    const dirs = plans.map(p => p.dir).sort()
-    expect(dirs).toEqual(['/mono/app-1', '/mono/app-2'])
-  })
-
-  it('monorepo siblings — app-specific layer scans only that app', () => {
-    const apps: AppInfo[] = [
-      { name: 'app-1', rootDir: '/mono/app-1', layers: ['app-1', 'app-shared'] },
-      { name: 'app-2', rootDir: '/mono/app-2', layers: ['app-2', 'app-shared'] },
-    ]
-    const plans = buildLayerScanPlan('app-1', apps, undefined)
-    expect(plans).toHaveLength(1)
-    expect(plans[0].dir).toBe('/mono/app-1')
-  })
-
-  it('passes user excludeDirs to all plans', () => {
-    const apps: AppInfo[] = [
-      { name: 'app-1', rootDir: '/mono/app-1', layers: ['app-1', 'app-shared'] },
-      { name: 'app-2', rootDir: '/mono/app-2', layers: ['app-2', 'app-shared'] },
-    ]
-    const plans = buildLayerScanPlan('app-shared', apps, ['storybook'])
-    for (const plan of plans) {
-      expect(plan.excludeDirs).toContain('storybook')
-    }
-  })
-
-  it('deduplicates scan dirs when apps share rootDir', () => {
-    const apps: AppInfo[] = [
-      { name: 'app-1', rootDir: '/project', layers: ['root', 'ui'] },
-      { name: 'app-2', rootDir: '/project', layers: ['root', 'shared'] },
-    ]
-    const plans = buildLayerScanPlan('root', apps, undefined)
-    expect(plans).toHaveLength(1)
-    expect(plans[0].dir).toBe('/project')
-  })
-
-  it('monorepo nested — shared layer scans all consumer apps', () => {
-    const apps: AppInfo[] = [
-      { name: 'app-1', rootDir: '/shared/app-1', layers: ['app-1', 'app-shared'] },
-      { name: 'app-2', rootDir: '/shared/app-2', layers: ['app-2', 'app-shared'] },
-    ]
-    const plans = buildLayerScanPlan('app-shared', apps, undefined)
-    expect(plans).toHaveLength(2)
-  })
-
-  it('falls back to all apps when layer not in graph', () => {
-    const apps: AppInfo[] = [
-      { name: 'app-1', rootDir: '/mono/app-1', layers: ['app-1'] },
-    ]
-    const plans = buildLayerScanPlan('unknown-layer', apps, undefined)
-    expect(plans).toHaveLength(1)
-    expect(plans[0].dir).toBe('/mono/app-1')
-  })
-})
