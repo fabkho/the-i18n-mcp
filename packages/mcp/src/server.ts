@@ -865,6 +865,7 @@ Follow these steps:
    - Follow the glossary and style examples if provided above.
    - Preserve all {placeholders} and @:linked.references.
 4. If you only provided translations for some locales, call \`translate_missing\` to fill in the rest.
+   - Pass \`keys\` explicitly (the exact dot-path keys you just added) to skip the missing-key scan and go straight to sampling.
 5. Summarize what was added.`
 
       return {
