@@ -15,6 +15,21 @@ export const sharedArgs = {
 
 /** Output result — JSON for piped/--json, pretty-printed for TTY */
 export function outputResult(data: unknown, args: { json?: boolean }): void {
+  // When result has reportFile key, format it nicely
+  if (
+    data !== null &&
+    typeof data === 'object' &&
+    'reportFile' in (data as Record<string, unknown>)
+  ) {
+    const { reportFile, ...rest } = data as Record<string, unknown>
+    const summaryJson = JSON.stringify(rest, null, 2)
+    if (args.json || !process.stdout.isTTY) {
+      process.stdout.write(`Wrote report to: ${reportFile}\n${summaryJson}\n`)
+    } else {
+      consola.log(`Wrote report to: ${reportFile}\n${summaryJson}`)
+    }
+    return
+  }
   const json = JSON.stringify(data, null, 2)
   if (args.json || !process.stdout.isTTY) {
     process.stdout.write(json + '\n')

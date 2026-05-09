@@ -13,11 +13,16 @@ export default defineCommand({
       type: 'string',
       description: 'Comma-separated keys to report on (default: all)',
     },
+    outputFile: {
+      type: 'string',
+      description: 'Write full output to this file path and return only a summary (useful for large outputs)',
+    },
   },
   async run({ args }) {
     const result = await scanCodeUsageOp({
       keys: splitList(args.keys),
       projectDir: args.projectDir,
+      outputFile: args.outputFile,
     })
     outputResult(result, args)
   },

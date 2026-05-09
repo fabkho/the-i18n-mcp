@@ -17,12 +17,17 @@ export default defineCommand({
       type: 'string',
       description: 'Locale to check (default: project default)',
     },
+    outputFile: {
+      type: 'string',
+      description: 'Write full output to this file path and return only a summary (useful for large outputs)',
+    },
   },
   async run({ args }) {
     const result = await findOrphanKeysOp({
       layer: args.layer,
       locale: args.locale,
       projectDir: args.projectDir,
+      outputFile: args.outputFile,
     })
     outputResult(result, args)
   },

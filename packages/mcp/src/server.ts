@@ -262,11 +262,15 @@ export function createServer(): McpServer {
           .string()
           .optional()
           .describe('Absolute path to the Nuxt project root. Defaults to server cwd. Example: "/home/user/my-app".'),
+        outputFile: z
+          .string()
+          .optional()
+          .describe('Absolute path to write full JSON output. Returns only a compact summary to the caller — use this for large outputs to avoid flooding the conversation context. Example: "/tmp/missing-translations.json"'),
       },
     },
-    async ({ layer, referenceLocale, targetLocales, locales, projectDir }) => {
+    async ({ layer, referenceLocale, targetLocales, locales, projectDir, outputFile }) => {
       try {
-        const result = await getMissingTranslations({ layer, referenceLocale, targetLocales, locales, projectDir })
+        const result = await getMissingTranslations({ layer, referenceLocale, targetLocales, locales, projectDir, outputFile })
         return jsonContent(result)
       } catch (error) {
         return toolErrorResponse('finding missing translations', error)
@@ -295,11 +299,15 @@ export function createServer(): McpServer {
           .string()
           .optional()
           .describe('Absolute path to the Nuxt project root. Defaults to server cwd. Example: "/home/user/my-app".'),
+        outputFile: z
+          .string()
+          .optional()
+          .describe('Absolute path to write full JSON output. Returns only a compact summary to the caller — use this for large outputs to avoid flooding the conversation context. Example: "/tmp/empty-translations.json"'),
       },
     },
-    async ({ layer, locale, projectDir }) => {
+    async ({ layer, locale, projectDir, outputFile }) => {
       try {
-        const result = await findEmptyTranslations({ layer, locale, projectDir })
+        const result = await findEmptyTranslations({ layer, locale, projectDir, outputFile })
         return jsonContent(result)
       } catch (error) {
         return toolErrorResponse('find_empty_translations', error)
@@ -580,11 +588,15 @@ export function createServer(): McpServer {
           .string()
           .optional()
           .describe('Absolute path to the Nuxt project root. Defaults to server cwd. Example: "/home/user/my-app".'),
+        outputFile: z
+          .string()
+          .optional()
+          .describe('Absolute path to write full JSON output. Returns only a compact summary to the caller — use this for large outputs to avoid flooding the conversation context. Example: "/tmp/orphan-keys.json"'),
       },
     },
-    async ({ layer, locale, scanDirs, excludeDirs, projectDir }) => {
+    async ({ layer, locale, scanDirs, excludeDirs, projectDir, outputFile }) => {
       try {
-        const result = await findOrphanKeysOp({ layer, locale, scanDirs, excludeDirs, projectDir })
+        const result = await findOrphanKeysOp({ layer, locale, scanDirs, excludeDirs, projectDir, outputFile })
         return jsonContent(result)
       } catch (error) {
         return toolErrorResponse('finding orphan keys', error)
@@ -617,11 +629,15 @@ export function createServer(): McpServer {
           .string()
           .optional()
           .describe('Absolute path to the Nuxt project root. Defaults to server cwd. Example: "/home/user/my-app".'),
+        outputFile: z
+          .string()
+          .optional()
+          .describe('Absolute path to write full JSON output. Returns only a compact summary to the caller — use this for large outputs to avoid flooding the conversation context. Example: "/tmp/scan-code-usage.json"'),
       },
     },
-    async ({ keys, scanDirs, excludeDirs, projectDir }) => {
+    async ({ keys, scanDirs, excludeDirs, projectDir, outputFile }) => {
       try {
-        const result = await scanCodeUsageOp({ keys, scanDirs, excludeDirs, projectDir })
+        const result = await scanCodeUsageOp({ keys, scanDirs, excludeDirs, projectDir, outputFile })
         return jsonContent(result)
       } catch (error) {
         return toolErrorResponse('scanning code usage', error)
@@ -662,11 +678,15 @@ export function createServer(): McpServer {
           .string()
           .optional()
           .describe('Absolute path to the Nuxt project root. Defaults to server cwd. Example: "/home/user/my-app".'),
+        outputFile: z
+          .string()
+          .optional()
+          .describe('Absolute path to write full JSON output. Returns only a compact summary to the caller — use this for large outputs to avoid flooding the conversation context. Example: "/tmp/cleanup-unused.json"'),
       },
     },
-    async ({ layer, locale, scanDirs, excludeDirs, dryRun, projectDir }) => {
+    async ({ layer, locale, scanDirs, excludeDirs, dryRun, projectDir, outputFile }) => {
       try {
-        const result = await cleanupUnusedTranslations({ layer, locale, scanDirs, excludeDirs, dryRun, projectDir })
+        const result = await cleanupUnusedTranslations({ layer, locale, scanDirs, excludeDirs, dryRun, projectDir, outputFile })
         return jsonContent(result)
       } catch (error) {
         return toolErrorResponse('cleaning up unused translations', error)
