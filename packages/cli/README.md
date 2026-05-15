@@ -26,6 +26,7 @@ the-i18n-cli detect                          # Auto-detect project config
 the-i18n-cli missing                         # Find missing translations
 the-i18n-cli search --query "save"           # Search keys and values
 the-i18n-cli add --layer root --translations '{"common.btn.ok": {"en": "OK", "de": "OK"}}'
+the-i18n-cli translate-key --layer root --key common.btn.save --sourceLocale en-US --sourceValue "Save"
 the-i18n-cli cleanup                         # Find orphan keys (dry-run by default)
 ```
 
@@ -44,6 +45,7 @@ the-i18n-cli cleanup                         # Find orphan keys (dry-run by defa
 | `remove` | Remove keys from all locales |
 | `rename` | Rename/move a key |
 | `translate` | Get translation contexts for missing keys |
+| `translate-key` | Translate one source key into target locales |
 | `orphans` | Find keys not referenced in source code |
 | `scan` | Find where keys are used in code |
 | `cleanup` | Remove unused keys (dry-run by default) |
@@ -81,10 +83,20 @@ For projects that aren't Nuxt or Laravel, add a `.i18n-mcp.json`:
 The CLI also exports all operations as a library for use in other tools:
 
 ```ts
-import { detectConfig, getMissingTranslations, addTranslations } from 'the-i18n-cli'
+import { detectConfig, getMissingTranslations, addTranslations, translateKey } from 'the-i18n-cli'
 
 const config = await detectConfig('/path/to/project')
 const missing = await getMissingTranslations({ projectDir: '/path/to/project' })
+
+await translateKey({
+  projectDir: '/path/to/project',
+  layer: 'root',
+  key: 'common.actions.save',
+  sourceLocale: 'en-US',
+  sourceValue: 'Save',
+  targetLocales: 'all',
+  overwrite: true,
+})
 ```
 
 ## Project Config

@@ -39,6 +39,9 @@ import type {
   AddTranslationsResult,
   UpdateTranslationsResult,
   ScaffoldLocaleResult,
+  PlaceholderValidationResult,
+  LocaleRefInfo,
+  TranslateKeyResult,
 } from './types.js'
 
 // ─── Constants ──────────────────────────────────────────────────
@@ -138,6 +141,42 @@ export function findLayerOrThrow(config: I18nConfig, layer: string): LocaleDir {
   return localeDir
 }
 
+export function localeRefInfo(locale: LocaleDefinition): LocaleRefInfo {
+  return {
+    code: locale.code,
+    ...(locale.language ? { language: locale.language } : {}),
+    ...(locale.file ? { file: locale.file } : {}),
+    ...(locale.name ? { name: locale.name } : {}),
+  }
+}
+
+function localeAcceptedRefs(locale: LocaleDefinition): string[] {
+  return [locale.code, locale.language, locale.file].filter(Boolean) as string[]
+}
+
+function formatLocaleChoices(locales: LocaleDefinition[]): string {
+  return locales
+    .map(locale => `- code: ${locale.code}${locale.language ? `, language: ${locale.language}` : ''}${locale.file ? `, file: ${locale.file}` : ''}${locale.name ? `, name: ${locale.name}` : ''}`)
+    .join('\n')
+}
+
+function findLocaleSuggestion(config: I18nConfig, localeRef: string): string {
+  const normalized = localeRef.endsWith('.json') ? localeRef.slice(0, -5) : localeRef
+  const suggestion = config.locales.find((locale) => {
+    return localeAcceptedRefs(locale).some((ref) => {
+      const normalizedRef = ref.endsWith('.json') ? ref.slice(0, -5) : ref
+      return normalizedRef === normalized
+        || normalizedRef.toLowerCase() === normalized.toLowerCase()
+        || normalizedRef.includes(normalized)
+        || normalized.includes(normalizedRef)
+    })
+  })
+  if (!suggestion) return ''
+
+  const refs = localeAcceptedRefs(suggestion).map(ref => `"${ref}"`).join(' or ')
+  return ` Did you mean ${refs}?`
+}
+
 export function findLocaleImpl(config: I18nConfig, localeRef: string) {
   return config.locales.find(
     l => l.code === localeRef || l.file === localeRef || l.language === localeRef,
@@ -148,7 +187,7 @@ export function findLocaleOrThrow(config: I18nConfig, localeRef: string): Locale
   const locale = findLocaleImpl(config, localeRef)
   if (!locale) {
     throw new ToolError(
-      `Locale not found: "${localeRef}". Available: ${config.locales.map(l => l.code).join(', ')}. Use one of the available locale codes or file names.`,
+      `Locale not found: "${localeRef}".${findLocaleSuggestion(config, localeRef)}\nAvailable locales:\n${formatLocaleChoices(config.locales)}`,
       'LOCALE_NOT_FOUND',
     )
   }
@@ -173,8 +212,23 @@ export async function applyTranslations(
   const preview: Array<{ locale: string; key: string; value: string }> = []
 
   const byLocale = new Map<LocaleDefinition, Array<{ key: string; value: string }>>()
+  const placeholderValidations: PlaceholderValidationResult[] = []
 
   for (const [key, localeValues] of Object.entries(translations)) {
+    const entries = Object.entries(localeValues)
+    const sourceEntry = entries.find(([localeRef]) => {
+      const locale = findLocale(config, localeRef)
+      return locale?.code === config.defaultLocale
+    }) ?? entries[0]
+    if (sourceEntry) {
+      placeholderValidations.push(validatePlaceholders(
+        key,
+        sourceEntry[1],
+        entries.map(([localeRef, value]) => ({ locale: localeRef, value })),
+        config.localeFileFormat,
+      ))
+    }
+
     for (const [localeRef, value] of Object.entries(localeValues)) {
       if (mode === 'add') {
         const warning = validateTranslationValue(value)
@@ -184,7 +238,7 @@ export async function applyTranslations(
       }
       const locale = findLocale(config, localeRef)
       if (!locale) {
-        log.warn(`Locale not found: ${localeRef}, skipping`)
+        log.warn(`Locale not found: ${localeRef}, skipping.${findLocaleSuggestion(config, localeRef)}`)
         continue
       }
       if (!byLocale.has(locale)) {
@@ -226,11 +280,20 @@ export async function applyTranslations(
     }
   }
 
+  const placeholderValidation = mergePlaceholderValidation(placeholderValidations)
+  if (placeholderValidation && !placeholderValidation.ok) {
+    warnings.push(...placeholderValidation.errors.map(error => `${error.key} (${error.locale}): placeholder mismatch; missing: ${error.missing.join(', ') || '-'}; extra: ${error.extra.join(', ') || '-'}`))
+  }
+
   const result: MutationResult = {
     applied: [...new Set(applied)],
     skipped: [...new Set(skipped)],
     warnings,
     filesWritten: filesWritten.size,
+  }
+
+  if (placeholderValidation) {
+    result.placeholderValidation = placeholderValidation
   }
 
   if (dryRun) {
@@ -241,6 +304,60 @@ export async function applyTranslations(
 }
 
 // ─── Sampling prompt helpers ────────────────────────────────────
+
+export function extractPlaceholders(value: string, format?: LocaleFileFormat): string[] {
+  const placeholders = new Set<string>()
+
+  if (format === 'php-array') {
+    for (const match of value.matchAll(/:([A-Za-z_][A-Za-z0-9_]*)/g)) {
+      placeholders.add(`:${match[1]}`)
+    }
+  } else {
+    for (const match of value.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
+      placeholders.add(`{${match[1]}}`)
+    }
+    for (const match of value.matchAll(/@:([A-Za-z0-9_.-]+)/g)) {
+      placeholders.add(`@:${match[1]}`)
+    }
+  }
+
+  return [...placeholders].sort()
+}
+
+export function validatePlaceholders(
+  key: string,
+  sourceValue: string,
+  values: Array<{ locale: string, value: string }>,
+  format?: LocaleFileFormat,
+): PlaceholderValidationResult {
+  const sourcePlaceholders = extractPlaceholders(sourceValue, format)
+  const sourceSet = new Set(sourcePlaceholders)
+  const errors: PlaceholderValidationResult['errors'] = []
+
+  for (const { locale, value } of values) {
+    const targetSet = new Set(extractPlaceholders(value, format))
+    const missing = sourcePlaceholders.filter(placeholder => !targetSet.has(placeholder))
+    const extra = [...targetSet].filter(placeholder => !sourceSet.has(placeholder)).sort()
+    if (missing.length || extra.length) {
+      errors.push({ locale, key, missing, extra })
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    placeholders: sourcePlaceholders,
+    errors,
+  }
+}
+
+function mergePlaceholderValidation(
+  validations: PlaceholderValidationResult[],
+): PlaceholderValidationResult | undefined {
+  if (validations.length === 0) return undefined
+  const placeholders = [...new Set(validations.flatMap(validation => validation.placeholders))].sort()
+  const errors = validations.flatMap(validation => validation.errors)
+  return { ok: errors.length === 0, placeholders, errors }
+}
 
 function placeholderInstruction(format?: LocaleFileFormat): string {
   if (format === 'php-array') {
@@ -514,7 +631,7 @@ export async function addTranslations(opts: {
   const config = await detectI18nConfig(dir)
   const isDryRun = opts.dryRun ?? false
 
-  const { applied, skipped, warnings, filesWritten, preview } = await applyTranslations(
+  const { applied, skipped, warnings, filesWritten, preview, placeholderValidation } = await applyTranslations(
     config, layer, translations, 'add', findLocaleImpl, isDryRun,
   )
 
@@ -535,6 +652,9 @@ export async function addTranslations(opts: {
     if (warnings.length > 0) {
       result.warnings = warnings
     }
+    if (placeholderValidation) {
+      result.placeholderValidation = placeholderValidation
+    }
     return result
   }
 
@@ -545,6 +665,9 @@ export async function addTranslations(opts: {
   }
   if (warnings.length > 0) {
     summary.warnings = warnings
+  }
+  if (placeholderValidation) {
+    summary.placeholderValidation = placeholderValidation
   }
 
   return summary
@@ -564,7 +687,7 @@ export async function updateTranslations(opts: {
   const config = await detectI18nConfig(dir)
   const isDryRun = opts.dryRun ?? false
 
-  const { applied, skipped, filesWritten, preview } = await applyTranslations(
+  const { applied, skipped, filesWritten, preview, placeholderValidation } = await applyTranslations(
     config, layer, translations, 'update', findLocaleImpl, isDryRun,
   )
 
@@ -582,14 +705,21 @@ export async function updateTranslations(opts: {
     if (skipped.length > 0) {
       result.skippedKeys = skipped
     }
+    if (placeholderValidation) {
+      result.placeholderValidation = placeholderValidation
+    }
     return result
   }
 
-  return {
+  const result: UpdateTranslationsResult = {
     updated: applied,
     skipped,
     filesWritten,
   }
+  if (placeholderValidation) {
+    result.placeholderValidation = placeholderValidation
+  }
+  return result
 }
 
 /**
@@ -681,8 +811,8 @@ export async function getMissingTranslations(opts: {
   const output = {
     missing: result,
     summary: {
-      referenceLocale: refLocale.code,
-      targetLocales: targets.map(t => t.code),
+      referenceLocale: localeRefInfo(refLocale),
+      targetLocales: targets.map(localeRefInfo),
       layersScanned: layersToScan.map(d => d.layer),
       totalMissingKeys: totalMissing,
     },
@@ -1154,7 +1284,7 @@ export async function translateMissing(opts: {
     }
 
     if (missingKeys.length === 0) {
-      results[target.code] = { translated: [], failed: [], samplingUsed: false }
+      results[target.code] = { translated: [], failed: [], samplingUsed: false, reason: 'no-missing-keys' }
       continue
     }
 
@@ -1174,6 +1304,7 @@ export async function translateMissing(opts: {
         translated: Object.keys(keysAndValues),
         failed: [],
         samplingUsed: samplingSupported,
+        reason: 'dry-run',
       }
       await reportProgress(`Complete ${target.code} (dry run)`)
       continue
@@ -1184,11 +1315,12 @@ export async function translateMissing(opts: {
       const failed: string[] = []
       const keyEntries = Object.entries(keysAndValues)
       const allTranslations: Record<string, string> = {}
+      const totalBatches = Math.ceil(keyEntries.length / maxBatch)
+      let samplingModel: string | undefined
 
       for (let i = 0; i < keyEntries.length; i += maxBatch) {
         const batchNum = Math.floor(i / maxBatch) + 1
         const batch = Object.fromEntries(keyEntries.slice(i, i + maxBatch))
-        const totalBatches = Math.ceil(keyEntries.length / maxBatch)
         let batchTranslations: Record<string, string> | null = null
 
         const systemPrompt = buildTranslationSystemPrompt(config.projectConfig, target.language || target.code, config.localeFileFormat)
@@ -1212,6 +1344,7 @@ export async function translateMissing(opts: {
               preferences: resolveSamplingPreferences(config.projectConfig),
             })
 
+            samplingModel = samplingResult.model
             if (!samplingModelLogged) {
               log.info(`Sampling model: ${samplingResult.model}`)
               samplingModelLogged = true
@@ -1249,6 +1382,21 @@ export async function translateMissing(opts: {
         await reportProgress(`${target.code}: batch ${batchNum}/${totalBatches}`)
       }
 
+      const placeholderValidation = mergePlaceholderValidation(Object.entries(allTranslations).map(([key, value]) => {
+        return validatePlaceholders(key, keysAndValues[key] ?? '', [{ locale: target.code, value }], config.localeFileFormat)
+      }))
+
+      if (placeholderValidation && !placeholderValidation.ok) {
+        const invalidKeys = new Set(placeholderValidation.errors.map(error => error.key))
+        for (const key of invalidKeys) {
+          delete allTranslations[key]
+          if (!failed.includes(key)) failed.push(key)
+        }
+        for (const key of [...translated]) {
+          if (invalidKeys.has(key)) translated.splice(translated.indexOf(key), 1)
+        }
+      }
+
       if (Object.keys(allTranslations).length > 0) {
         try {
           await mutateLocaleData(config, layer, target, (data) => {
@@ -1258,12 +1406,12 @@ export async function translateMissing(opts: {
           })
         } catch (error) {
           log.warn(`Failed to write translations for ${target.code}: ${error instanceof Error ? error.message : String(error)}`)
-          results[target.code] = { translated: [], failed: [...Object.keys(keysAndValues)], samplingUsed: true, writeError: error instanceof Error ? error.message : String(error) }
+          results[target.code] = { translated: [], failed: [...Object.keys(keysAndValues)], samplingUsed: true, reason: 'translated-with-sampling', batches: totalBatches, model: samplingModel, writeError: error instanceof Error ? error.message : String(error) }
           continue
         }
       }
 
-      results[target.code] = { translated, failed, samplingUsed: true }
+      results[target.code] = { translated, failed, samplingUsed: true, reason: 'translated-with-sampling', batches: totalBatches, model: samplingModel, ...(placeholderValidation ? { placeholderValidation } : {}) }
     } else {
       // Fallback: return context for agent to translate inline
       fallbackContexts[target.code] = buildFallbackContext(
@@ -1276,6 +1424,7 @@ export async function translateMissing(opts: {
         translated: [],
         failed: Object.keys(keysAndValues),
         samplingUsed: false,
+        reason: 'sampling-unavailable',
       }
     }
 
@@ -1292,8 +1441,8 @@ export async function translateMissing(opts: {
       totalTranslated,
       totalFailed,
       layer,
-      referenceLocale: refLocale.code,
-      targetLocales: targets.map(t => t.code),
+      referenceLocale: localeRefInfo(refLocale),
+      targetLocales: targets.map(localeRefInfo),
       dryRun: isDryRun,
     },
   }
@@ -1307,6 +1456,209 @@ export async function translateMissing(opts: {
   }
 
   return output
+}
+
+/**
+ * Translate one key from a source locale into target locales. Unlike
+ * translate_missing, this can overwrite stale existing target values.
+ */
+export async function translateKey(opts: {
+  layer: string
+  key: string
+  sourceLocale: string
+  sourceValue?: string
+  targetLocales?: string[] | 'all'
+  overwrite?: boolean
+  dryRun?: boolean
+  includePreview?: boolean
+  projectDir?: string
+  samplingFn?: SamplingFn
+}): Promise<TranslateKeyResult> {
+  const dir = opts.projectDir ?? process.cwd()
+  const config = await detectI18nConfig(dir)
+  const isDryRun = opts.dryRun ?? false
+  const overwrite = opts.overwrite ?? true
+  const sourceLocale = findLocaleOrThrow(config, opts.sourceLocale)
+  const targetLocalesByCode = new Map<string, LocaleDefinition>()
+  const resolvedTargetLocales = opts.targetLocales === undefined || opts.targetLocales === 'all'
+    ? config.locales
+    : opts.targetLocales.map(localeRef => findLocaleOrThrow(config, localeRef))
+  for (const locale of resolvedTargetLocales) {
+    if (locale.code !== sourceLocale.code && !targetLocalesByCode.has(locale.code)) {
+      targetLocalesByCode.set(locale.code, locale)
+    }
+  }
+  const targetLocales = [...targetLocalesByCode.values()]
+
+  const sourceData = await readLocaleData(config, opts.layer, sourceLocale)
+  const existingSourceValue = getNestedValue(sourceData, opts.key)
+  const sourceValue = opts.sourceValue ?? (typeof existingSourceValue === 'string' ? existingSourceValue : undefined)
+
+  if (sourceValue === undefined) {
+    throw new ToolError(`Source value for key "${opts.key}" not found in locale "${opts.sourceLocale}". Provide sourceValue or add the key first.`, 'SOURCE_KEY_NOT_FOUND')
+  }
+
+  const preview: Record<string, string> = {}
+  let filesWritten = 0
+  let updatedSource = false
+
+  if (opts.sourceValue !== undefined && existingSourceValue !== opts.sourceValue) {
+    updatedSource = true
+    if (opts.includePreview || isDryRun) preview[sourceLocale.code] = opts.sourceValue
+    if (!isDryRun) {
+      const written = await mutateLocaleData(config, opts.layer, sourceLocale, (data) => {
+        setNestedValue(data, opts.key, opts.sourceValue!)
+      })
+      filesWritten += written.size
+    }
+  }
+
+  const existingTargets: Array<{ locale: LocaleDefinition, existingValue: unknown }> = []
+  const failed: Array<string | { locale: string, error: string }> = []
+  for (const locale of targetLocales) {
+    try {
+      const data = await readLocaleData(config, opts.layer, locale)
+      existingTargets.push({ locale, existingValue: getNestedValue(data, opts.key) })
+    } catch (error) {
+      failed.push({ locale: locale.code, error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  const targetsToTranslate = existingTargets.filter(({ existingValue }) => {
+    return overwrite || existingValue === undefined || existingValue === '' || existingValue === null
+  })
+  const skipped = existingTargets
+    .filter(({ existingValue }) => !overwrite && existingValue !== undefined && existingValue !== '' && existingValue !== null)
+    .map(({ locale }) => locale.code)
+
+  const basePlaceholderValidation = validatePlaceholders(opts.key, sourceValue, [{ locale: sourceLocale.code, value: sourceValue }], config.localeFileFormat)
+
+  if (isDryRun) {
+    return {
+      key: opts.key,
+      sourceLocale: localeRefInfo(sourceLocale),
+      updatedSource,
+      translated: targetsToTranslate.map(({ locale }) => locale.code),
+      skipped,
+      failed,
+      filesWritten: 0,
+      dryRun: true,
+      samplingUsed: !!opts.samplingFn,
+      reason: 'dry-run',
+      placeholderValidation: basePlaceholderValidation,
+      ...(opts.includePreview ? { preview } : {}),
+    }
+  }
+
+  if (targetsToTranslate.length === 0) {
+    return {
+      key: opts.key,
+      sourceLocale: localeRefInfo(sourceLocale),
+      updatedSource,
+      translated: [],
+      skipped,
+      failed,
+      filesWritten,
+      dryRun: false,
+      samplingUsed: false,
+      placeholderValidation: basePlaceholderValidation,
+      ...(opts.includePreview ? { preview } : {}),
+    }
+  }
+
+  if (!opts.samplingFn) {
+    return {
+      key: opts.key,
+      sourceLocale: localeRefInfo(sourceLocale),
+      updatedSource,
+      translated: [],
+      skipped,
+      failed: [...failed, ...targetsToTranslate.map(({ locale }) => locale.code)],
+      filesWritten,
+      dryRun: false,
+      samplingUsed: false,
+      reason: 'sampling-unavailable',
+      placeholderValidation: basePlaceholderValidation,
+      fallbackContext: buildFallbackContext(
+        config.projectConfig,
+        sourceLocale.language || sourceLocale.code,
+        targetsToTranslate.map(({ locale }) => locale.language || locale.code).join(', '),
+        { [opts.key]: sourceValue },
+      ),
+      ...(opts.includePreview ? { preview } : {}),
+    }
+  }
+
+  const translated: string[] = []
+  const placeholderValidations: PlaceholderValidationResult[] = [basePlaceholderValidation]
+  let samplingModel: string | undefined
+
+  for (const { locale } of targetsToTranslate) {
+    let targetValue: string | undefined
+    const systemPrompt = buildTranslationSystemPrompt(config.projectConfig, locale.language || locale.code, config.localeFileFormat)
+    const userMessage = buildTranslationUserMessage(
+      sourceLocale.language || sourceLocale.code,
+      locale.language || locale.code,
+      { [opts.key]: sourceValue },
+      config.localeFileFormat,
+    )
+
+    try {
+      const samplingResult = await opts.samplingFn({
+        systemPrompt,
+        userMessage,
+        maxTokens: computeMaxTokens(1),
+        preferences: resolveSamplingPreferences(config.projectConfig),
+      })
+      samplingModel = samplingResult.model
+      const parsed = extractJsonFromResponse(samplingResult.text)
+      const parsedValue = parsed[opts.key]
+      if (typeof parsedValue === 'string') {
+        targetValue = parsedValue
+      }
+    } catch (error) {
+      log.warn(`Sampling failed for ${locale.code}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+
+    if (!targetValue) {
+      failed.push(locale.code)
+      continue
+    }
+
+    const validation = validatePlaceholders(opts.key, sourceValue, [{ locale: locale.code, value: targetValue }], config.localeFileFormat)
+    placeholderValidations.push(validation)
+    if (!validation.ok) {
+      failed.push(locale.code)
+      continue
+    }
+
+    if (opts.includePreview) preview[locale.code] = targetValue
+    try {
+      const written = await mutateLocaleData(config, opts.layer, locale, (data) => {
+        setNestedValue(data, opts.key, targetValue)
+      })
+      filesWritten += written.size
+      translated.push(locale.code)
+    } catch (error) {
+      failed.push({ locale: locale.code, error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  return {
+    key: opts.key,
+    sourceLocale: localeRefInfo(sourceLocale),
+    updatedSource,
+    translated,
+    skipped,
+    failed,
+    filesWritten,
+    dryRun: false,
+    samplingUsed: true,
+    reason: 'translated-with-sampling',
+    model: samplingModel,
+    placeholderValidation: mergePlaceholderValidation(placeholderValidations) ?? basePlaceholderValidation,
+    ...(opts.includePreview ? { preview } : {}),
+  }
 }
 
 /**

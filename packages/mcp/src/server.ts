@@ -21,6 +21,7 @@ import {
   removeTranslations,
   renameTranslationKey,
   translateMissing,
+  translateKey,
   findOrphanKeysOp,
   scanCodeUsageOp,
   cleanupUnusedTranslations,
@@ -207,7 +208,7 @@ export function createServer(): McpServer {
               z.string().describe('Translation string value for this locale'),
             ),
           )
-          .describe('Map of dot-path keys to locale-value pairs. IMPORTANT: values must be locale maps, NOT plain strings. Wrong: { "auth.failed": "Login failed" }. Correct: { "auth.failed": { "en": "Login failed", "de": "Anmeldung fehlgeschlagen" } }'),
+          .describe('Map of dot-path keys to locale-value pairs. IMPORTANT: values must be locale maps, NOT plain strings. Locale refs may be code ("en-us"), language ("en-US"), or file ("en-US.json"). Wrong: { "auth.failed": "Login failed" }. Correct: { "auth.failed": { "en-US": "Login failed", "de-DE": "Anmeldung fehlgeschlagen" } }'),
         dryRun: z
           .boolean()
           .optional()
@@ -248,7 +249,7 @@ export function createServer(): McpServer {
               z.string().describe('New translation string value for this locale'),
             ),
           )
-          .describe('Map of dot-path keys to updated locale-value pairs. IMPORTANT: values must be locale maps, NOT plain strings. Wrong: { "auth.failed": "Login failed" }. Correct: { "auth.failed": { "en": "Login failed", "de": "Anmeldung fehlgeschlagen" } }'),
+          .describe('Map of dot-path keys to updated locale-value pairs. IMPORTANT: values must be locale maps, NOT plain strings. Locale refs may be code ("en-us"), language ("en-US"), or file ("en-US.json"). Wrong: { "auth.failed": "Login failed" }. Correct: { "auth.failed": { "en-US": "Login failed", "de-DE": "Anmeldung fehlgeschlagen" } }'),
         dryRun: z
           .boolean()
           .optional()
@@ -591,6 +592,113 @@ export function createServer(): McpServer {
         return jsonContent(result)
       } catch (error) {
         return toolErrorResponse('translating missing keys', error)
+      }
+    },
+  )
+
+  // ─── Tool: translate_key ──────────────────────────────────────
+
+  server.registerTool(
+    'translate_key',
+    {
+      title: 'Translate Key',
+      description:
+        'Add/update one source translation key and translate it into target locales. Unlike translate_missing, this can overwrite existing stale target translations.',
+      annotations: {
+        title: 'Translate Single Key',
+        readOnlyHint: false,
+      },
+      inputSchema: {
+        layer: z
+          .string()
+          .describe('Layer name from list_locale_dirs to update (e.g., "root", "app-admin").'),
+        key: z
+          .string()
+          .describe('Dot-separated key path to translate. Example: "bookingCreator.options.removeSubResource".'),
+        sourceLocale: z
+          .string()
+          .describe('Source locale ref. May be code ("en-us"), language ("en-US"), or file ("en-US.json").'),
+        sourceValue: z
+          .string()
+          .optional()
+          .describe('Optional source value. If provided, source locale is added/updated before translating. If omitted, existing source value is read.'),
+        targetLocales: z
+          .union([z.literal('all'), z.array(z.string())])
+          .optional()
+          .describe('Target locales to translate into. Use "all" or omit for all locales except source.'),
+        overwrite: z
+          .boolean()
+          .optional()
+          .describe('When true, overwrite existing target translations. When false, only fill missing targets. Default: true.'),
+        dryRun: z
+          .boolean()
+          .optional()
+          .describe('When true, previews source/target locales without writing files or calling sampling.'),
+        includePreview: z
+          .boolean()
+          .optional()
+          .describe('When true, include translated values in output. Default false to keep responses compact.'),
+        projectDir: z
+          .string()
+          .optional()
+          .describe('Absolute path to the Nuxt project root. Defaults to server cwd.'),
+      },
+    },
+    async ({ layer, key, sourceLocale, sourceValue, targetLocales, overwrite, dryRun, includePreview, projectDir }) => {
+      try {
+        const clientCapabilities = server.server.getClientCapabilities()
+        const samplingSupported = !!clientCapabilities?.sampling
+        const samplingFn: SamplingFn | undefined = samplingSupported
+          ? async (opts) => {
+              const SAMPLING_TIMEOUT_MS = 120_000
+              const samplingResult = await server.server.createMessage({
+                messages: [
+                  {
+                    role: 'user',
+                    content: { type: 'text', text: opts.userMessage },
+                  },
+                ],
+                systemPrompt: opts.systemPrompt,
+                maxTokens: opts.maxTokens,
+                temperature: 0,
+                includeContext: 'none',
+                modelPreferences: {
+                  hints: opts.preferences.hints,
+                  costPriority: opts.preferences.costPriority,
+                  speedPriority: opts.preferences.speedPriority,
+                  intelligencePriority: opts.preferences.intelligencePriority,
+                },
+              }, {
+                timeout: SAMPLING_TIMEOUT_MS,
+              })
+
+              const responseText = samplingResult.content.type === 'text'
+                ? samplingResult.content.text
+                : ''
+
+              return {
+                text: responseText,
+                model: samplingResult.model,
+              }
+            }
+          : undefined
+
+        const result = await translateKey({
+          layer,
+          key,
+          sourceLocale,
+          sourceValue,
+          targetLocales,
+          overwrite,
+          dryRun,
+          includePreview,
+          projectDir,
+          samplingFn,
+        })
+
+        return jsonContent(result)
+      } catch (error) {
+        return toolErrorResponse('translating key', error)
       }
     },
   )

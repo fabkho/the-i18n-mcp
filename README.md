@@ -28,6 +28,7 @@ The-i18n-kit auto-detects your project structure (Nuxt, Laravel, or any generic 
 the-i18n-cli missing              # what's not translated yet?
 the-i18n-cli orphans              # what keys are dead code?
 the-i18n-cli rename old.key new.key   # rename across all locales at once
+the-i18n-cli translate-key --layer root --key common.save --sourceLocale en-US --sourceValue "Save"  # update one key and translate targets
 the-i18n-cli cleanup              # remove orphan keys (dry-run by default)
 ```
 
@@ -35,9 +36,13 @@ the-i18n-cli cleanup              # remove orphan keys (dry-run by default)
 
 ```
 Agent adds $t('booking.confirm.title')
-  → calls add_translations (writes to all locales using its own LLM)
+  → calls add_translations (writes exact values the agent provides)
   → calls translate_missing (fills remaining locales via MCP sampling)
 Done. All 28 locales updated, consistent terminology, no manual work.
+
+Agent changes wording for an existing key
+  → calls translate_key with the source locale/value
+  → MCP sampling refreshes target locales, including stale existing values when overwrite=true
 ```
 
 ---
@@ -183,12 +188,13 @@ When an AI agent builds a feature and adds new translation keys:
 
 1. **Agent adds `$t('some.key')`** to the Vue/Blade component
 2. **Agent calls `detect_i18n_config`** → loads `.i18n-mcp.json` (context, glossary, layerRules) into its session
-3. **Agent calls `add_translations`** — writes translations for all locales at once using the glossary and context it just loaded. The agent's own LLM does the translation work. No separate sampling involved.
+3. **Agent calls `add_translations`** — writes exact translations the agent provides. No separate sampling involved.
 4. **Agent calls `translate_missing`** → MCP sampling fills any locales the agent didn't cover via a separate LLM call.
+5. **When source wording changes**, agent calls `translate_key` to refresh one key across target locales (including existing stale translations when `overwrite=true`).
 
 The `add-feature-translations` MCP prompt codifies this as a reusable workflow. It also checks for duplicate keys via `search_translations` before writing.
 
-> **`add_translations` vs `translate_missing`:** `add_translations` is a pure write tool — takes a `{key: value}` map and writes it, no LLM involved. `translate_missing` is where sampling happens: reads the reference locale, builds a prompt from glossary + localeNotes + examples, and calls the LLM to fill gaps across all other locales.
+> **Exact writes vs translation tools:** `add_translations` and `update_translations` are pure write tools — they take locale-value maps and write them, no LLM involved. `translate_missing` fills only missing target values via sampling. `translate_key` translates one source key into target locales and can overwrite stale existing target values.
 
 ---
 
