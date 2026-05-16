@@ -6,7 +6,7 @@
 
 MCP server for managing i18n translation files — gives your AI agent full control over your app's translations without dumping entire locale files into context.
 
-15 purpose-built tools that let the agent work surgically — touching only the keys it needs. Auto-detects Nuxt, Laravel, or any project with JSON/PHP locale files.
+16 purpose-built tools that let the agent work surgically — touching only the keys it needs. Auto-detects Nuxt, Laravel, or any project with JSON/PHP locale files.
 
 Part of [the-i18n-kit](https://github.com/fabkho/the-i18n-kit) monorepo. For CLI usage, see [the-i18n-cli](https://www.npmjs.com/package/the-i18n-cli).
 
@@ -80,6 +80,7 @@ Then just ask your agent:
 ## What You Get
 
 - **Auto-translate entire locales** — `translate_missing` batches keys to an LLM via MCP sampling, writes results back, and shows a progress bar
+- **Refresh one existing key** — `translate_key` updates a source locale and translates target locales, optionally overwriting stale existing values
 - **Add a new language in one shot** — the `add-language` prompt walks your agent through config updates, file scaffolding, and bulk translation
 - **Safe, atomic writes** — temp file + rename cycle, indentation preserved, keys sorted alphabetically, `{placeholders}` validated
 - **Smart caching** — config detection and file reads are mtime-cached, writes invalidate automatically
@@ -108,7 +109,8 @@ Then just ask your agent:
 | `get_missing_translations` | Find keys missing in target locales |
 | `find_empty_translations` | Find keys with empty string values |
 | `search_translations` | Search by key or value substring |
-| `translate_missing` | Auto-translate via MCP sampling or return fallback context |
+| `translate_missing` | Auto-translate missing keys via MCP sampling or return fallback context |
+| `translate_key` | Translate one source key into target locales; can overwrite stale values |
 | `find_orphan_keys` | Find keys not referenced in source code |
 | `scan_code_usage` | Find where keys are used (file paths + line numbers) |
 | `cleanup_unused_translations` | Find + remove orphan keys. **Dry-run by default** |

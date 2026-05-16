@@ -30,12 +30,33 @@ export interface MutationPreview {
   value: string
 }
 
+export interface PlaceholderValidationIssue {
+  locale: string
+  key: string
+  missing: string[]
+  extra: string[]
+}
+
+export interface PlaceholderValidationResult {
+  ok: boolean
+  placeholders: string[]
+  errors: PlaceholderValidationIssue[]
+}
+
+export interface LocaleRefInfo {
+  code: string
+  language?: string
+  file?: string
+  name?: string
+}
+
 export interface MutationResult {
   applied: string[]
   skipped: string[]
   warnings: string[]
   filesWritten: number
   preview?: MutationPreview[]
+  placeholderValidation?: PlaceholderValidationResult
 }
 
 export interface AddTranslationsResult {
@@ -47,6 +68,7 @@ export interface AddTranslationsResult {
   skipped: string[]
   filesWritten?: number
   warnings?: string[]
+  placeholderValidation?: PlaceholderValidationResult
   summary?: {
     keysToAdd: number
     keysSkipped: number
@@ -63,6 +85,7 @@ export interface UpdateTranslationsResult {
   updated?: string[]
   skipped: string[]
   filesWritten?: number
+  placeholderValidation?: PlaceholderValidationResult
   summary?: {
     keysToUpdate: number
     keysSkipped: number
@@ -76,8 +99,8 @@ export interface UpdateTranslationsResult {
 export interface MissingTranslationsResult {
   missing: Record<string, Record<string, string[]>>
   summary: {
-    referenceLocale: string
-    targetLocales: string[]
+    referenceLocale: string | LocaleRefInfo
+    targetLocales: Array<string | LocaleRefInfo>
     layersScanned: string[]
     totalMissingKeys: number
   }
@@ -169,7 +192,11 @@ export interface TranslateMissingLocaleResult {
   translated: string[]
   failed: string[]
   samplingUsed: boolean
+  reason?: 'no-missing-keys' | 'dry-run' | 'translated-with-sampling' | 'sampling-unavailable'
+  batches?: number
+  model?: string
   writeError?: string
+  placeholderValidation?: PlaceholderValidationResult
 }
 
 export interface TranslateMissingResult {
@@ -180,11 +207,35 @@ export interface TranslateMissingResult {
     totalTranslated: number
     totalFailed: number
     layer: string
-    referenceLocale: string
-    targetLocales: string[]
+    referenceLocale: string | LocaleRefInfo
+    targetLocales: Array<string | LocaleRefInfo>
     dryRun: boolean
     message?: string
   }
+}
+
+// ─── translate_key ───────────────────────────────────────────────
+
+export interface TranslateKeyFailure {
+  locale: string
+  error: string
+}
+
+export interface TranslateKeyResult {
+  key: string
+  sourceLocale: LocaleRefInfo
+  updatedSource: boolean
+  translated: string[]
+  skipped: string[]
+  failed: Array<string | TranslateKeyFailure>
+  filesWritten: number
+  dryRun: boolean
+  samplingUsed: boolean
+  reason?: 'dry-run' | 'translated-with-sampling' | 'sampling-unavailable'
+  model?: string
+  placeholderValidation: PlaceholderValidationResult
+  preview?: Record<string, string>
+  fallbackContext?: Record<string, unknown>
 }
 
 // ─── find_orphan_keys ────────────────────────────────────────────
